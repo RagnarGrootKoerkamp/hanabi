@@ -27,14 +27,14 @@ const COLOURS: [Color; 6] = [
 ];
 
 // Not Copy and Clone to prevent duplicating cards.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[must_use = "Cards cannot disappear"]
 pub struct Card {
     pub c: Color,
     pub v: Value,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 struct Deck {
     cards: Vec<Card>,
 }
@@ -71,7 +71,7 @@ impl Deck {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Played(Vec<usize>);
 
 impl Played {
@@ -124,9 +124,10 @@ impl CardKnowledge {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Hand {
-    pub cards: Vec<(Card, CardKnowledge)>,
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum Hand {
+    Visible(Vec<(Card, CardKnowledge)>),
+    Hidden(Vec<CardKnowledge>),
 }
 
 impl Hand {
@@ -134,26 +135,29 @@ impl Hand {
         let cards = (0..cards_per_player)
             .map(|_| (deck.take(), CardKnowledge::new(variant)))
             .collect();
-        Self { cards }
+        Self::Visible(cards)
     }
     fn draw(&mut self, variant: GameVariant, deck: &mut Deck) {
-        self.cards.push((deck.take(), CardKnowledge::new(variant)))
+        let Hand::Visible(cards) = self else { panic!() };
+        cards.push((deck.take(), CardKnowledge::new(variant)))
     }
     fn take(&mut self, index: usize) -> Option<Card> {
-        if index < self.cards.len() {
-            Some(self.cards.remove(index).0)
+        let Hand::Visible(cards) = self else { panic!() };
+        if index < cards.len() {
+            Some(cards.remove(index).0)
         } else {
             None
         }
     }
     fn hint(&mut self, hint: Hint) -> Result<(), &'static str> {
         use KnowledgeState::*;
+        let Hand::Visible(cards) = self else { panic!() };
         match hint {
             ValueHint(v) => {
                 if !(1..MAX_VALUE).contains(&v) {
                     return Err("Hinted value is out of range.");
                 }
-                for (card, know) in &mut self.cards {
+                for (card, know) in cards {
                     if v == card.v {
                         // Answer to hint is 'yes': fix the value of the card.
                         know.vs.fill(Impossible);
@@ -172,7 +176,7 @@ impl Hand {
                 if c == Color::Multi {
                     return Err("Hinting multi is not allowed.");
                 }
-                for (card, know) in &mut self.cards {
+                for (card, know) in cards {
                     if card.c == c || card.c == Color::Multi {
                         // Answer to hint is 'yes': remove other non-multi colors.
                         for ci in COLOURS {
@@ -195,37 +199,41 @@ impl Hand {
         }
         Ok(())
     }
+    fn to_view(&mut self) {
+        let Hand::Visible(cards) = std::mem::replace(self, Hand::Hidden(vec![])) else { panic!() };
+        *self = Hand::Hidden(cards.into_iter().map(|(_card, know)| know).collect());
+    }
 }
 
 pub type Player = usize;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Hint {
     ValueHint(Value),
     ColorHint(Color),
 }
 pub use Hint::*;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Play {
     pub index: usize,
     //pub card: Card,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Discard {
     pub index: usize,
     //pub card: Card,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum MoveType {
     Play(Play),
     Discard(Discard),
     Hint { player: Player, hint: Hint },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Move {
     player: Player,
     mov: MoveType,
@@ -256,7 +264,7 @@ impl GameVariant {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Game {
     // data
     num_players: Player,
@@ -377,5 +385,13 @@ impl Game {
             Some((p + 1) % self.num_players)
         };
         Ok(())
+    }
+
+    /// Create a view for the given player, with secret information removed.
+    pub fn to_view(&self, player: Player) -> Self {
+        let mut view = self.clone();
+        view.deck = Deck::default();
+        view.hands[player].to_view();
+        view
     }
 }
