@@ -1,0 +1,5 @@
+[workspace]
+members = [
+    "hanabi-base",
+]
+resolver = "2"
