@@ -1,3 +1,9 @@
+use std::{
+    fmt::Display,
+    ops::{Index, IndexMut},
+    str::FromStr,
+};
+
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 
@@ -7,7 +13,18 @@ const MAX_LIVES: usize = 3;
 pub type Value = usize;
 const MAX_VALUE: Value = 5;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    strum_macros::Display,
+    strum_macros::EnumString,
+)]
+#[strum(ascii_case_insensitive)]
 pub enum Color {
     Blue = 0,
     Green = 1,
@@ -17,7 +34,7 @@ pub enum Color {
     Multi = 5,
 }
 const MAX_COLORS: usize = 6;
-const COLOURS: [Color; 6] = [
+const COLORS: [Color; 6] = [
     Color::Blue,
     Color::Green,
     Color::Red,
@@ -25,6 +42,40 @@ const COLOURS: [Color; 6] = [
     Color::Yellow,
     Color::Multi,
 ];
+const COLORWIDTH: usize = 6 + 1;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ColorArray<T>([T; MAX_COLORS]);
+impl<T> ColorArray<T> {
+    pub fn find_eq(&self, t: T) -> Option<Color>
+    where
+        T: Eq + Copy,
+    {
+        for c in COLORS {
+            if self[c] == t {
+                return Some(c);
+            }
+        }
+        None
+    }
+    pub fn count_eq(&self, t: T) -> usize
+    where
+        T: Eq + Copy,
+    {
+        self.0.iter().filter(|&&x| x == t).count()
+    }
+}
+impl<T> Index<Color> for ColorArray<T> {
+    type Output = T;
+    fn index(&self, c: Color) -> &Self::Output {
+        &self.0[c as usize]
+    }
+}
+impl<T> IndexMut<Color> for ColorArray<T> {
+    fn index_mut(&mut self, c: Color) -> &mut Self::Output {
+        &mut self.0[c as usize]
+    }
+}
 
 // Not Copy and Clone to prevent duplicating cards.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -33,10 +84,18 @@ pub struct Card {
     pub c: Color,
     pub v: Value,
 }
+const CARDWIDTH: usize = COLORWIDTH + 2;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-struct Deck {
-    cards: Vec<Card>,
+impl std::fmt::Display for Card {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.pad(&format!("{} {}", self.c, self.v))
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+enum Deck {
+    Visible(Vec<Card>),
+    Hidden(usize),
 }
 
 impl Deck {
@@ -61,18 +120,46 @@ impl Deck {
             }
         }
         cards.shuffle(&mut thread_rng());
-        Self { cards }
+        Deck::Visible(cards)
     }
     fn take(&mut self) -> Card {
-        self.cards.pop().unwrap()
+        let Deck::Visible(cards) = self else { panic!() };
+        cards.pop().unwrap()
     }
     fn is_empty(&self) -> bool {
-        self.cards.is_empty()
+        match self {
+            Deck::Visible(cards) => cards.is_empty(),
+            Deck::Hidden(len) => *len == 0,
+        }
+    }
+    fn len(&self) -> usize {
+        match self {
+            Deck::Visible(cards) => cards.len(),
+            Deck::Hidden(len) => *len,
+        }
+    }
+    fn view(&mut self) {
+        let cards = std::mem::replace(self, Deck::Hidden(0));
+        *self = Deck::Hidden(cards.len());
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Played(Vec<usize>);
+
+impl Index<Color> for Played {
+    type Output = usize;
+
+    fn index(&self, c: Color) -> &Self::Output {
+        &self.0[c as usize]
+    }
+}
+
+impl IndexMut<Color> for Played {
+    fn index_mut(&mut self, c: Color) -> &mut Self::Output {
+        &mut self.0[c as usize]
+    }
+}
 
 impl Played {
     fn new(variant: GameVariant) -> Self {
@@ -85,7 +172,7 @@ impl Played {
 
     /// Returns the card
     fn play(&mut self, card: Card) -> Result<Card, Card> {
-        let cur_cnt = &mut self.0[card.c as usize];
+        let cur_cnt = &mut self[card.c];
         if card.v != *cur_cnt + 1 {
             Err(card)
         } else {
@@ -104,21 +191,69 @@ pub enum KnowledgeState {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum Turn {
+    Start,
+    Turn(usize),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CardKnowledge {
     /// NOTE: Indices are 1 lower than values.
     pub vs: [KnowledgeState; MAX_VALUE],
-    pub cs: [KnowledgeState; MAX_COLORS],
+    pub cs: ColorArray<KnowledgeState>,
+    pub picked_up: Turn,
+}
+
+impl Display for CardKnowledge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use KnowledgeState::*;
+        // c:
+        // known:
+        // red/.../?
+        //
+        // multi + one other:
+        // red/... + italics or *
+        //
+        // else:
+        // ?
+
+        let c = if let Some(c) = self.cs.find_eq(Known) {
+            c.to_string()
+        } else if self.cs[Color::Multi] == Possible && self.cs.count_eq(Possible) == 2 {
+            format!("{}*", self.cs.find_eq(Possible).unwrap())
+        } else {
+            "?".to_string()
+        };
+
+        // v: 1/2/3/4/5 or ?
+        let v = self.vs.iter().position(|&k| k == Known);
+        let v = match v {
+            Some(v) => b'1' + v as u8,
+            None => b'?',
+        } as char;
+
+        let s = match (c.as_str(), v) {
+            ("?", '?') => c,
+            ("?", _) => format!("{v}"),
+            (_, '?') => c,
+            (_, _) => format!("{c} {v}"),
+        };
+
+        f.pad(&s)
+    }
 }
 
 impl CardKnowledge {
-    fn new(variant: GameVariant) -> Self {
+    fn new(variant: GameVariant, turn: Turn) -> Self {
+        use KnowledgeState::*;
         let mut this = Self {
-            vs: [KnowledgeState::Possible; MAX_VALUE],
-            cs: [KnowledgeState::Possible; MAX_COLORS],
+            vs: [Possible; MAX_VALUE],
+            cs: ColorArray([Possible; MAX_COLORS]),
+            picked_up: turn,
         };
         // Disable Multi possibility if needed.
-        if variant.num_colors() == 5 {
-            this.cs[5] = KnowledgeState::Impossible;
+        if !variant.has_multi() {
+            this.cs[Color::Multi] = Impossible;
         }
         this
     }
@@ -133,33 +268,36 @@ pub enum Hand {
 impl Hand {
     fn new(variant: GameVariant, cards_per_player: usize, deck: &mut Deck) -> Self {
         let cards = (0..cards_per_player)
-            .map(|_| (deck.take(), CardKnowledge::new(variant)))
+            .map(|_| (deck.take(), CardKnowledge::new(variant, Turn::Start)))
             .collect();
         Self::Visible(cards)
     }
     fn draw(&mut self, variant: GameVariant, deck: &mut Deck) {
         let Hand::Visible(cards) = self else { panic!() };
-        cards.push((deck.take(), CardKnowledge::new(variant)))
+        cards.push((deck.take(), CardKnowledge::new(variant, Turn::Start)))
     }
-    fn take(&mut self, index: usize) -> Option<Card> {
+    fn take(&mut self, index: usize) -> Option<(Card, CardKnowledge)> {
         let Hand::Visible(cards) = self else { panic!() };
         if index < cards.len() {
-            Some(cards.remove(index).0)
+            Some(cards.remove(index))
         } else {
             None
         }
     }
-    fn hint(&mut self, hint: Hint) -> Result<(), &'static str> {
+    /// Returns the hinted positions.
+    fn hint(&mut self, hint: Hint) -> Result<Vec<usize>, &'static str> {
         use KnowledgeState::*;
         let Hand::Visible(cards) = self else { panic!() };
+        let mut positions = vec![];
         match hint {
             ValueHint(v) => {
-                if !(1..MAX_VALUE).contains(&v) {
+                if !(1..=MAX_VALUE).contains(&v) {
                     return Err("Hinted value is out of range.");
                 }
-                for (card, know) in cards {
+                for (pos, (card, know)) in cards.iter_mut().enumerate() {
                     if v == card.v {
                         // Answer to hint is 'yes': fix the value of the card.
+                        positions.push(pos);
                         know.vs.fill(Impossible);
                         know.vs[v - 1] = Known;
                     } else {
@@ -176,28 +314,29 @@ impl Hand {
                 if c == Color::Multi {
                     return Err("Hinting multi is not allowed.");
                 }
-                for (card, know) in cards {
+                for (pos, (card, know)) in cards.iter_mut().enumerate() {
                     if card.c == c || card.c == Color::Multi {
                         // Answer to hint is 'yes': remove other non-multi colors.
-                        for ci in COLOURS {
+                        positions.push(pos);
+                        for ci in COLORS {
                             if ci != c && ci != Color::Multi {
-                                know.cs[ci as usize] = Impossible;
+                                know.cs[ci] = Impossible;
                             }
                         }
                     } else {
                         // Answer to hint is 'no'.
-                        know.cs[Color::Multi as usize] = Impossible;
-                        know.cs[c as usize] = Impossible;
+                        know.cs[Color::Multi] = Impossible;
+                        know.cs[c] = Impossible;
                     }
 
                     // If only one 'possible' remaining, set it to Known.
-                    if know.cs.iter().filter(|&&s| s == Possible).count() == 1 {
-                        *know.cs.iter_mut().find(|&&mut s| s == Possible).unwrap() = Known;
+                    if know.cs.0.iter().filter(|&&s| s == Possible).count() == 1 {
+                        *know.cs.0.iter_mut().find(|&&mut s| s == Possible).unwrap() = Known;
                     }
                 }
             }
         }
-        Ok(())
+        Ok(positions)
     }
     fn to_view(&mut self) {
         let Hand::Visible(cards) = std::mem::replace(self, Hand::Hidden(vec![])) else { panic!() };
@@ -214,32 +353,154 @@ pub enum Hint {
 }
 pub use Hint::*;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Play {
-    pub index: usize,
-    //pub card: Card,
+impl FromStr for Hint {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(c) = Color::from_str(s) {
+            Ok(ColorHint(c))
+        } else if let Ok(v) = Value::from_str(s) {
+            Ok(ValueHint(v))
+        } else {
+            Err("Could not parse hint as color or value")
+        }
+    }
+}
+
+impl Display for Hint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValueHint(v) => write!(f, "value {v}"),
+            ColorHint(c) => write!(f, "color {c}"),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Discard {
-    pub index: usize,
-    //pub card: Card,
+pub enum Move {
+    Play { pos: usize },
+    Discard { pos: usize },
+    Hint { hinted_player: Player, hint: Hint },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum MoveType {
-    Play(Play),
-    Discard(Discard),
-    Hint { player: Player, hint: Hint },
+pub enum MoveLog {
+    Play {
+        pos: usize,
+        card: Card,
+        know: CardKnowledge,
+        success: bool,
+    },
+    Discard {
+        pos: usize,
+        card: Card,
+        know: CardKnowledge,
+    },
+    Hint {
+        hinted_player: Player,
+        hint: Hint,
+        positions: Vec<usize>,
+    },
+}
+
+impl FromStr for Move {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut tokens = s.split_ascii_whitespace();
+        match tokens.next().ok_or("Empty string")? {
+            "play" => Ok(Move::Play {
+                pos: usize::from_str(tokens.next().ok_or("Missing index")?)
+                    .map_err(|_| "Could not parse card index.")?,
+            }),
+            "discard" => Ok(Move::Discard {
+                pos: usize::from_str(tokens.next().ok_or("Missing index")?)
+                    .map_err(|_| "Could not parse card index.")?,
+            }),
+            "hint" => Ok(Move::Hint {
+                hinted_player: usize::from_str(tokens.next().ok_or("Missing player")?)
+                    .map_err(|_| "Could not parse player.")?,
+                hint: Hint::from_str(tokens.next().ok_or("Missing hint")?)?,
+            }),
+
+            _ => return Err("Unknown move"),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Move {
-    player: Player,
-    mov: MoveType,
+pub struct PlayerMove {
+    pub player: Player,
+    pub mov: Move,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PlayerMoveLog {
+    pub player: Player,
+    pub mov: MoveLog,
+}
+
+impl Display for PlayerMoveLog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self { player, mov } = self;
+        match mov {
+            MoveLog::Play {
+                pos,
+                card,
+                know,
+                success,
+            } => {
+                if *success {
+                    write!(
+                        f,
+                        "Player {player} played the {card} from position {pos} knowing {know}."
+                    )
+                } else {
+                    write!(
+                        f,
+                        "Player {player} played the {card} from position {pos} knowing {know}, and LOST A LIFE."
+                    )
+                }
+            }
+            MoveLog::Discard { pos, card, know } => write!(
+                f,
+                "Player {player} discarded the {card} from position {pos} knowing {know}."
+            ),
+            MoveLog::Hint {
+                hinted_player,
+                hint,
+                positions,
+            } => {
+                write!(
+                    f,
+                    "Player {player} hinted player {hinted_player} {} {} with {hint} at positions [",
+                    positions.len(), if positions.len() == 1 { "card" } else {"cards"}
+                )?;
+                for (idx, pos) in positions.iter().enumerate() {
+                    if idx == 0 {
+                        write!(f, "{pos}")?;
+                    } else {
+                        write!(f, ",{pos}")?;
+                    }
+                }
+                write!(f, "].")
+            }
+        }
+    }
+}
+
+#[derive(
+    Debug,
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    strum_macros::Display,
+    strum_macros::EnumString,
+)]
+#[strum(ascii_case_insensitive)]
 pub enum GameVariant {
     Base,
     Multi,
@@ -251,6 +512,12 @@ impl GameVariant {
         match self {
             GameVariant::Base => 5,
             GameVariant::Multi | GameVariant::MultiHard => 6,
+        }
+    }
+    pub fn has_multi(&self) -> bool {
+        match self {
+            GameVariant::Base => false,
+            GameVariant::Multi | GameVariant::MultiHard => true,
         }
     }
     pub fn colors(&self) -> Vec<Color> {
@@ -286,7 +553,7 @@ pub struct Game {
     played: Played,
 
     // move
-    moves: Vec<Move>,
+    moves_log: Vec<PlayerMoveLog>,
 }
 
 impl Game {
@@ -315,74 +582,102 @@ impl Game {
             hands,
             discarded: vec![],
             played: Played::new(variant),
-            moves: vec![],
+            moves_log: vec![],
         }
     }
 
-    pub fn make_move(&mut self, mov: Move) -> Result<(), &'static str> {
-        let p = self.next_player.ok_or("Game has ended.")?;
-        if mov.player != p {
+    pub fn make_move(&mut self, mov: PlayerMove) -> Result<(), &'static str> {
+        let player = self.next_player.ok_or("Game has ended.")?;
+        if mov.player != player {
             return Err("Not this player's turn.");
         }
 
         // Do the move
         match mov.mov {
-            MoveType::Play(Play { index }) => {
-                let card = self.hands[p]
-                    .take(index)
+            Move::Play { pos } => {
+                let (card, know) = self.hands[player]
+                    .take(pos)
                     .ok_or("Card index out of range.")?;
 
                 // Play the card if possible.
-                match self.played.play(card) {
+                // Card is cloned for the log.
+                let success = match self.played.play(card.clone()) {
                     Ok(card) => {
                         if card.v == MAX_VALUE {
                             self.hints += 1;
                         }
                         drop(card);
+                        true
                     }
                     Err(card) => {
                         self.discarded.push(card);
                         self.lives -= 1;
+                        false
                     }
-                }
+                };
 
-                self.hands[p].draw(self.variant, &mut self.deck);
+                self.hands[player].draw(self.variant, &mut self.deck);
+                self.moves_log.push(PlayerMoveLog {
+                    player,
+                    mov: MoveLog::Play {
+                        pos,
+                        card,
+                        know,
+                        success,
+                    },
+                })
             }
-            MoveType::Discard(Discard { index }) => {
+            Move::Discard { pos } => {
                 if self.hints == MAX_HINTS {
                     return Err("Already at max hints; discarding not allowed.");
                 }
-                let card = self.hands[p]
-                    .take(index)
+                let (card, know) = self.hands[player]
+                    .take(pos)
                     .ok_or("Card index out of range.")?;
-                self.discarded.push(card);
+                self.discarded.push(card.clone());
                 self.hints += 1;
+                self.hands[player].draw(self.variant, &mut self.deck);
+                self.moves_log.push(PlayerMoveLog {
+                    player,
+                    mov: MoveLog::Discard { pos, card, know },
+                })
             }
-            MoveType::Hint { player, hint } => {
+            Move::Hint {
+                hinted_player,
+                hint,
+            } => {
                 if self.hints == 0 {
                     return Err("No hints remaining; hinting not allowed.");
                 }
-                if player == p {
+                if hinted_player == player {
                     return Err("Hinting yourself is not allowed.");
                 }
-                if !(0..self.num_players).contains(&player) {
+                if !(0..self.num_players).contains(&hinted_player) {
                     return Err("Player out of range");
                 }
                 self.hints -= 1;
-                self.hands[player].hint(hint)?;
+                let positions = self.hands[hinted_player].hint(hint.clone())?;
+                self.moves_log.push(PlayerMoveLog {
+                    player,
+                    mov: MoveLog::Hint {
+                        hinted_player,
+                        hint,
+                        positions,
+                    },
+                })
             }
         }
 
         // This player will have the last turn?
         if self.deck.is_empty() && self.last_player.is_none() {
-            self.last_player = Some(p);
+            self.last_player = Some(player);
         }
 
         // End the game?
-        self.next_player = if self.lives == 0 || self.last_player == Some(p) {
+        self.next_player = if self.lives == 0 || self.last_player == Some(player) {
             None
         } else {
-            Some((p + 1) % self.num_players)
+            Some((player + 1) % self.num_players)
         };
         Ok(())
     }
@@ -390,8 +685,110 @@ impl Game {
     /// Create a view for the given player, with secret information removed.
     pub fn to_view(&self, player: Player) -> Self {
         let mut view = self.clone();
-        view.deck = Deck::default();
+        view.deck.view();
         view.hands[player].to_view();
         view
+    }
+
+    pub fn next_player(&self) -> Option<usize> {
+        self.next_player
+    }
+
+    pub fn has_ended(&self) -> bool {
+        self.next_player.is_none()
+    }
+}
+
+/// Print the current game state to stderr.
+///
+/// turn: 0 | hints: 8 | lives: 3
+///
+/// discarded:
+/// red    0 0 0 0 0
+/// green  0 0 0 0 0
+/// blue   0 0 0 0 0
+/// yellow 0 0 0 0 0
+/// green  0 0 0 0 0
+/// multi  0 0 0 0 0
+///
+/// played:
+/// red 0 | green 1 | blue 2 | green 3 | yellow 4 | multi 5
+///
+///  p 1        2        3        4        5
+/// *1 green 1
+///  2 yellow 5
+///  3 5        yellow
+impl Display for Game {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "Turn: {} | Hints: {} | Lives: {} | Deck: {}",
+            self.moves_log.len(),
+            self.hints,
+            self.lives,
+            self.deck.len()
+        )?;
+
+        writeln!(f)?;
+        writeln!(f, "Discarded")?;
+        let mut discarded = [[0; MAX_VALUE]; MAX_COLORS];
+        for card in &self.discarded {
+            discarded[card.c as usize][card.v - 1] += 1;
+        }
+        for c in self.variant.colors() {
+            write!(f, " {c:COLORWIDTH$}")?;
+            for v in 1..=MAX_VALUE {
+                write!(f, " {}", discarded[c as usize][v - 1])?;
+            }
+            writeln!(f)?;
+        }
+        writeln!(f)?;
+
+        writeln!(f, "played:")?;
+        for c in self.variant.colors() {
+            write!(f, " {c} {}", self.played[c])?;
+        }
+        writeln!(f)?;
+        writeln!(f)?;
+
+        write!(f, "  ")?;
+        for idx in 0..self.cards_per_player {
+            write!(f, " {idx:^CARDWIDTH$}")?;
+        }
+        writeln!(f)?;
+        for p in 0..self.num_players {
+            let this_turn = if self.next_player == Some(p) {
+                '*'
+            } else {
+                ' '
+            };
+            write!(f, "{this_turn}{p}")?;
+            match &self.hands[p] {
+                Hand::Visible(hand) => {
+                    for (card, _know) in hand {
+                        write!(f, " {card:^CARDWIDTH$}")?;
+                    }
+                }
+                Hand::Hidden(hand) => {
+                    for know in hand {
+                        write!(f, " {know:^CARDWIDTH$}")?;
+                    }
+                }
+            };
+            writeln!(f)?;
+        }
+        writeln!(f)?;
+        writeln!(f, "moves:")?;
+        for (id, mov) in self
+            .moves_log
+            .iter()
+            .enumerate()
+            .rev()
+            .take(self.num_players)
+            .rev()
+        {
+            writeln!(f, " {id:2}: {mov}")?;
+        }
+        Ok(())
     }
 }

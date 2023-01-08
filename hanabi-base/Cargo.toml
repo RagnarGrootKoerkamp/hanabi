@@ -9,3 +9,5 @@ edition = "2021"
 [dependencies]
 rand = "0.8.5"
 serde = { version = "1.0.152", features = ["derive"] }
+strum = "0.24.1"
+strum_macros = "0.24.3"
