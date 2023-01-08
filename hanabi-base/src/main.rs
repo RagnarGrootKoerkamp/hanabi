@@ -36,4 +36,7 @@ pub fn main() {
             break;
         }
     }
+
+    eprintln!("The game is over");
+    eprintln!("{game}");
 }

@@ -4,6 +4,7 @@ use std::{
     str::FromStr,
 };
 
+use owo_colors::{OwoColorize, Style};
 use rand::{seq::SliceRandom, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +44,19 @@ const COLORS: [Color; 6] = [
     Color::Multi,
 ];
 const COLORWIDTH: usize = 6 + 1;
+
+impl Color {
+    fn to_style(&self) -> Style {
+        match self {
+            Color::Blue => Style::new().bright_blue(),
+            Color::Green => Style::new().green(),
+            Color::Red => Style::new().red(),
+            Color::White => Style::new().white(),
+            Color::Yellow => Style::new().yellow(),
+            Color::Multi => Style::new().purple(),
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ColorArray<T>([T; MAX_COLORS]);
@@ -88,7 +102,9 @@ const CARDWIDTH: usize = COLORWIDTH + 2;
 
 impl std::fmt::Display for Card {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.pad(&format!("{} {}", self.c, self.v))
+        self.c.to_style().fmt_prefix(f)?;
+        f.pad(&format!("{} {}", self.c, self.v))?;
+        self.c.to_style().fmt_suffix(f)
     }
 }
 
@@ -218,11 +234,12 @@ impl Display for CardKnowledge {
         // ?
 
         let c = if let Some(c) = self.cs.find_eq(Known) {
-            c.to_string()
+            Some(c)
         } else if self.cs[Color::Multi] == Possible && self.cs.count_eq(Possible) == 2 {
-            format!("{}*", self.cs.find_eq(Possible).unwrap())
+            todo!();
+            //format!("{}*", self.cs.find_eq(Possible).unwrap())
         } else {
-            "?".to_string()
+            None
         };
 
         // v: 1/2/3/4/5 or ?
@@ -232,14 +249,21 @@ impl Display for CardKnowledge {
             None => b'?',
         } as char;
 
-        let s = match (c.as_str(), v) {
-            ("?", '?') => c,
-            ("?", _) => format!("{v}"),
-            (_, '?') => c,
-            (_, _) => format!("{c} {v}"),
+        let (text, style) = match (c, v) {
+            (None, '?') => ("?".into(), None),
+            (None, _) => (format!("{v}"), None),
+            (Some(c), '?') => (c.to_string(), Some(c.to_style())),
+            (Some(c), _) => (format!("{c} {v}"), Some(c.to_style())),
         };
 
-        f.pad(&s)
+        if let Some(style) = style {
+            style.fmt_prefix(f)?;
+        }
+        f.pad(&text)?;
+        if let Some(style) = style {
+            style.fmt_suffix(f)?;
+        }
+        Ok(())
     }
 }
 
@@ -371,7 +395,7 @@ impl Display for Hint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ValueHint(v) => write!(f, "value {v}"),
-            ColorHint(c) => write!(f, "color {c}"),
+            ColorHint(c) => write!(f, "color {}", c.style(c.to_style())),
         }
     }
 }
@@ -720,35 +744,70 @@ impl Game {
 ///  3 5        yellow
 impl Display for Game {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "\n------------------------------------------\n")?;
+
+        let good = Style::new().green();
+        let ok = Style::new().white();
+        let warn = Style::new().yellow();
+        let error = Style::new().red();
+
+        let hints_style = match self.hints {
+            0 => error,
+            1 | 2 => warn,
+            _ => good,
+        };
+
+        let lives_style = match self.lives {
+            MAX_LIVES => good,
+            0 => error,
+            _ => warn,
+        };
+
+        let deck_style = match self.deck.len() {
+            0 => error,
+            1..=5 => warn,
+            _ => good,
+        };
+
         writeln!(
             f,
-            "Turn: {} | Hints: {} | Lives: {} | Deck: {}",
-            self.moves_log.len(),
-            self.hints,
-            self.lives,
-            self.deck.len()
+            "Hints: {} | Lives: {} | Deck: {} | Score: {} | Turn: {}",
+            self.hints.style(hints_style).bold(),
+            self.lives.style(lives_style).bold(),
+            self.deck.len().style(deck_style).bold(),
+            self.played.score().bold(),
+            self.moves_log.len().bold(),
         )?;
 
         writeln!(f)?;
-        writeln!(f, "Discarded")?;
+        writeln!(f, "    {} | {}", "played".bold(), "discarded".bold())?;
         let mut discarded = [[0; MAX_VALUE]; MAX_COLORS];
         for card in &self.discarded {
             discarded[card.c as usize][card.v - 1] += 1;
         }
         for c in self.variant.colors() {
-            write!(f, " {c:COLORWIDTH$}")?;
+            write!(f, " {:COLORWIDTH$}", c.style(c.to_style()))?;
+            write!(
+                f,
+                " {} {}",
+                self.played[c].bold().style(c.to_style()),
+                "|".style(c.to_style())
+            )?;
             for v in 1..=MAX_VALUE {
-                write!(f, " {}", discarded[c as usize][v - 1])?;
+                let d = discarded[c as usize][v - 1];
+                let style = if v <= self.played[c] {
+                    good
+                } else if d == 0 {
+                    ok
+                } else if d == Deck::count(self.variant, c, v) {
+                    error
+                } else {
+                    warn
+                };
+                write!(f, " {}", d.style(style))?;
             }
             writeln!(f)?;
         }
-        writeln!(f)?;
-
-        writeln!(f, "played:")?;
-        for c in self.variant.colors() {
-            write!(f, " {c} {}", self.played[c])?;
-        }
-        writeln!(f)?;
         writeln!(f)?;
 
         write!(f, "  ")?;
