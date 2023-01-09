@@ -305,7 +305,16 @@ impl<Game: GameT> ServerState<Game> {
             }
             _ => unreachable!(),
         };
-        Some(Room(self.room(roomid).to_view(&userid)))
+
+        let room = self.room(roomid);
+        for watching_client in self.watchers(roomid) {
+            let client = self.client(*watching_client);
+            client
+                .sink
+                .send(Room(room.to_view(client.userid.as_ref().unwrap())));
+        }
+        // Client is already updated in the loop above.
+        None
     }
 
     fn start_game(&mut self, userid: &UserId, roomid: RoomId) -> Result<(), &'static str> {
