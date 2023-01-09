@@ -1,9 +1,9 @@
 pub mod server;
 
-use std::{fmt::Display, str::FromStr};
-
 use hanabi_base::GameT;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use std::{fmt::Display, str::FromStr};
 
 // TODO: Separate Player id and name. For now the name is the id.
 pub type UserId = String;
@@ -103,8 +103,11 @@ pub enum Action<Game: GameT> {
     LeaveRoom,
 
     /// Create a new room.
-    // TODO
-    NewRoom,
+    NewRoom {
+        min_players: usize,
+        max_players: usize,
+        settings: Game::Settings,
+    },
     /// Join the current room if it is waiting for players.
     JoinRoom,
 
@@ -126,7 +129,26 @@ impl<Game: GameT> FromStr for Action<Game> {
             "logout" => Logout,
             "enter" => WatchRoom(tokens.next().ok_or("missing room id")?.parse()?),
             "leave" => LeaveRoom,
-            "new" => NewRoom,
+            "new" => NewRoom {
+                min_players: tokens
+                    .next()
+                    .ok_or("missing min players")?
+                    .parse()
+                    .map_err(|_| "failed to parse min_players")?,
+                max_players: tokens
+                    .next()
+                    .ok_or("missing max players")?
+                    .parse()
+                    .map_err(|_| "failed to parse max_players")?,
+                settings: {
+                    let s = Itertools::intersperse(tokens, " ")
+                        .collect::<String>()
+                        .parse()
+                        .map_err(|_| "Could not parse settings")?;
+                    tokens = "".split_ascii_whitespace();
+                    s
+                },
+            },
             "join" => JoinRoom,
             "start" => StartGame,
             _ => MakeMove(s.parse()?),

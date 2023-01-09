@@ -961,7 +961,7 @@ impl Display for Game {
 }
 
 pub trait GameT: Sized + Debug + Display + Serialize + DeserializeOwned + Clone {
-    type Settings: Debug + Display + Serialize + DeserializeOwned + Clone;
+    type Settings: Debug + Display + Serialize + DeserializeOwned + Clone + FromStr;
     type Move: Debug + Serialize + DeserializeOwned + Clone + FromStr<Err = &'static str>;
     fn new(player_names: Vec<String>, settings: Self::Settings) -> Self;
     fn make_move(&mut self, player: &String, mov: Self::Move) -> Result<(), &'static str>;

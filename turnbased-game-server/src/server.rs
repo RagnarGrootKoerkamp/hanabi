@@ -87,7 +87,8 @@ impl<Game: GameT> ServerState<Game> {
         match action {
             Action::Login(login_userid) => {
                 self.logout(clientid);
-                self.clients.get_mut(&clientid).unwrap().userid = Some(login_userid);
+                self.clients.get_mut(&clientid).unwrap().userid = Some(login_userid.clone());
+                self.users.insert(login_userid, User { sockets: vec![] });
                 return Some(self.room_list());
             }
             Action::Logout => {
@@ -108,10 +109,30 @@ impl<Game: GameT> ServerState<Game> {
         };
 
         match action {
-            Action::WatchRoom(roomid) => {
+            Action::NewRoom {
+                min_players,
+                max_players,
+                settings,
+            } => {
+                let roomid = RoomId(self.rooms.len());
+                self.rooms.push((
+                    crate::Room {
+                        roomid,
+                        settings,
+                        players: vec![userid.clone()],
+                        state: RoomState::WaitingForPlayers {
+                            min_players,
+                            max_players,
+                        },
+                    },
+                    vec![clientid],
+                ));
                 self.leave_room(clientid);
                 self.client_mut(clientid).roomid = Some(roomid);
-                self.watchers_mut(roomid).push(clientid);
+                return Some(Room(self.room(roomid).to_view(&userid)));
+            }
+            Action::WatchRoom(roomid) => {
+                self.watch_room(clientid, roomid);
                 return Some(Room(self.room(roomid).to_view(&userid)));
             }
             _ => {}
@@ -171,6 +192,12 @@ impl<Game: GameT> ServerState<Game> {
         }
         // Client is already updated in the loop above.
         None
+    }
+
+    fn watch_room(&mut self, clientid: std::net::SocketAddr, roomid: RoomId) {
+        self.leave_room(clientid);
+        self.client_mut(clientid).roomid = Some(roomid);
+        self.watchers_mut(roomid).push(clientid);
     }
 
     fn disconnect(&mut self, clientid: std::net::SocketAddr) {
