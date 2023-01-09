@@ -48,9 +48,6 @@ struct Room<Game: GameT> {
     settings: Game::Settings,
     players: Vec<UserId>,
     state: RoomState<Game>,
-    /// Sockets that are watching this room for updates.
-    #[serde(skip)]
-    watchers: Vec<ClientId>,
 }
 
 impl<Game: GameT> Room<Game> {
@@ -64,7 +61,6 @@ impl<Game: GameT> Room<Game> {
                 RoomState::Ended(_) => RoomState::Ended(None),
                 s => s.clone(),
             },
-            watchers: vec![],
         }
     }
     fn to_view(&self, userid: &UserId) -> Self {
@@ -76,7 +72,6 @@ impl<Game: GameT> Room<Game> {
                 RoomState::Started(g) => RoomState::Started(g.as_ref().map(|g| g.to_view(userid))),
                 s => s.clone(),
             },
-            watchers: vec![],
         }
     }
 
@@ -118,7 +113,7 @@ struct ServerState<Game: GameT> {
     /// All users in the server.
     users: HashMap<UserId, User>,
     /// All rooms in the server.
-    rooms: Vec<Room<Game>>,
+    rooms: Vec<(Room<Game>, Vec<ClientId>)>,
     /// All currently open sockets.
     clients: HashMap<ClientId, Client>,
 }
@@ -170,10 +165,17 @@ struct Server<Game: GameT> {
 
 impl<Game: GameT> ServerState<Game> {
     fn room(&self, roomid: RoomId) -> &Room<Game> {
-        &self.rooms[roomid.0]
+        &self.rooms[roomid.0].0
     }
     fn room_mut(&mut self, roomid: RoomId) -> &mut Room<Game> {
-        &mut self.rooms[roomid.0]
+        &mut self.rooms[roomid.0].0
+    }
+
+    fn watchers(&self, roomid: RoomId) -> &Vec<ClientId> {
+        &self.rooms[roomid.0].1
+    }
+    fn watchers_mut(&mut self, roomid: RoomId) -> &mut Vec<ClientId> {
+        &mut self.rooms[roomid.0].1
     }
 
     fn client(&self, clientid: ClientId) -> &Client {
@@ -184,7 +186,12 @@ impl<Game: GameT> ServerState<Game> {
     }
 
     fn room_list(&self) -> Response<Game> {
-        Response::RoomList(self.rooms.iter().map(|room| room.to_list_item()).collect())
+        Response::RoomList(
+            self.rooms
+                .iter()
+                .map(|room| room.0.to_list_item())
+                .collect(),
+        )
     }
 
     fn handle_action(
@@ -211,7 +218,7 @@ impl<Game: GameT> ServerState<Game> {
                 eprintln!("{} disconnected", &clientid);
                 let Client { userid, roomid, .. } = self.clients.remove(&clientid).unwrap();
                 if let Some(room) = roomid {
-                    self.rooms[room.0].watchers.retain(|x| x != &clientid);
+                    self.watchers_mut(room).retain(|x| x != &clientid);
                 }
                 if let Some(userid) = userid {
                     self.users
@@ -248,7 +255,7 @@ impl<Game: GameT> ServerState<Game> {
             Action::WatchRoom(roomid) => {
                 self.leave_room(clientid);
                 self.client_mut(clientid).roomid = Some(roomid);
-                self.room_mut(roomid).watchers.push(clientid);
+                self.watchers_mut(roomid).push(clientid);
                 return Some(Room(self.room(roomid).to_view(&userid)));
             }
             _ => {}
@@ -311,10 +318,9 @@ impl<Game: GameT> ServerState<Game> {
     }
 
     fn leave_room(&mut self, clientid: ClientId) {
-        let room = &mut self.clients.get_mut(&clientid).unwrap().roomid;
-        if let Some(roomid) = room {
-            self.rooms[roomid.0].watchers.retain(|x| x != &clientid);
-            *room = None;
+        if let Some(roomid) = self.clients.get(&clientid).unwrap().roomid {
+            self.watchers_mut(roomid).retain(|x| x != &clientid);
+            self.clients.get_mut(&clientid).unwrap().roomid = None;
         }
     }
 
