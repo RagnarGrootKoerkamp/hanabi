@@ -1,6 +1,4 @@
-use std::str::FromStr;
-
-use hanabi_base::{Action, Game, GameVariant};
+use hanabi_base::{Game, GameVariant};
 use text_io::{read, try_read};
 
 pub fn main() {
@@ -21,7 +19,7 @@ pub fn main() {
         loop {
             eprint!(" ");
             let mov: String = read!("{}\n");
-            let action = match Action::from_str(&mov) {
+            let action = match mov.parse() {
                 Ok(m) => m,
                 Err(err) => {
                     eprintln!("move: play <index> | discard <index> | hint <player> <color|value>");

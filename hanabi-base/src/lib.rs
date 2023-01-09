@@ -337,16 +337,16 @@ impl Hand {
             CardKnowledge::new(variant, Turn::Start),
         ))
     }
-    fn take(&mut self, index: usize) -> Option<CardWithKnowledge> {
+    fn take(&mut self, card_idx: CardIdx) -> Option<CardWithKnowledge> {
         let Hand::Visible(cards) = self else { panic!() };
-        if index < cards.len() {
-            Some(cards.remove(index))
+        if card_idx.0 - 1 < cards.len() {
+            Some(cards.remove(card_idx.0 - 1))
         } else {
             None
         }
     }
     /// Returns the hinted indices.
-    fn hint(&mut self, hint: Hint) -> Result<Vec<usize>, &'static str> {
+    fn hint(&mut self, hint: Hint) -> Result<Vec<CardIdx>, &'static str> {
         use KnowledgeState::*;
         let Hand::Visible(cards) = self else { panic!() };
         let mut card_indices = vec![];
@@ -355,10 +355,10 @@ impl Hand {
                 if !(1..=MAX_VALUE).contains(&v) {
                     return Err("Hinted value is out of range.");
                 }
-                for (card_idx, CardWithKnowledge(card, know)) in cards.iter_mut().enumerate() {
+                for (idx, CardWithKnowledge(card, know)) in cards.iter_mut().enumerate() {
                     if v == card.v {
                         // Answer to hint is 'yes': fix the value of the card.
-                        card_indices.push(card_idx);
+                        card_indices.push(CardIdx(idx + 1));
                         know.vs.fill(Impossible);
                         know.vs[v - 1] = Known;
                     } else {
@@ -375,10 +375,10 @@ impl Hand {
                 if c == Color::Multi {
                     return Err("Hinting multi is not allowed.");
                 }
-                for (card_idx, CardWithKnowledge(card, know)) in cards.iter_mut().enumerate() {
+                for (idx, CardWithKnowledge(card, know)) in cards.iter_mut().enumerate() {
                     if card.c == c || card.c == Color::Multi {
                         // Answer to hint is 'yes': remove other non-multi colors.
-                        card_indices.push(card_idx);
+                        card_indices.push(CardIdx(idx + 1));
                         for ci in COLORS {
                             if ci != c && ci != Color::Multi {
                                 know.cs[ci] = Impossible;
@@ -412,8 +412,23 @@ impl Hand {
 
 /// 0-based player index. Shown to user as 1-based.
 pub type Player = usize;
-/// 0-based card index. Shown to user as 1-based.
-pub type CardIdx = usize;
+/// 1-based card index.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct CardIdx(usize);
+
+impl FromStr for CardIdx {
+    type Err = <usize as FromStr>::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(CardIdx(s.parse()?))
+    }
+}
+
+impl Display for CardIdx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Hint {
@@ -426,9 +441,9 @@ impl FromStr for Hint {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Ok(c) = Color::from_str(s) {
+        if let Ok(c) = s.parse() {
             Ok(ColorHint(c))
-        } else if let Ok(v) = Value::from_str(s) {
+        } else if let Ok(v) = s.parse() {
             Ok(ValueHint(v))
         } else {
             Err("Could not parse hint as color or value")
@@ -459,18 +474,27 @@ impl FromStr for Action {
         let mut tokens = s.split_ascii_whitespace();
         match tokens.next().ok_or("Empty string")? {
             "play" => Ok(Action::Play {
-                card_idx: usize::from_str(tokens.next().ok_or("Missing index")?)
+                card_idx: tokens
+                    .next()
+                    .ok_or("Missing index")?
+                    .parse()
                     .map_err(|_| "Could not parse card index.")?,
             }),
             "discard" => Ok(Action::Discard {
-                card_idx: usize::from_str(tokens.next().ok_or("Missing index")?)
+                card_idx: tokens
+                    .next()
+                    .ok_or("Missing index")?
+                    .parse()
                     .map_err(|_| "Could not parse card index.")?,
             }),
             "hint" => Ok(Action::Hint {
-                hinted_player: usize::from_str(tokens.next().ok_or("Missing player")?)
+                hinted_player: tokens
+                    .next()
+                    .ok_or("Missing player")?
+                    .parse::<usize>()
                     .map_err(|_| "Could not parse player.")?
                     - 1,
-                hint: Hint::from_str(tokens.next().ok_or("Missing hint")?)?,
+                hint: tokens.next().ok_or("Missing hint")?.parse()?,
             }),
 
             _ => return Err("Unknown move"),
@@ -481,13 +505,13 @@ impl FromStr for Action {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ActionLog {
     Play {
-        card_idx: usize,
+        card_idx: CardIdx,
         card: Card,
         know: CardKnowledge,
         success: bool,
     },
     Discard {
-        card_idx: usize,
+        card_idx: CardIdx,
         card: Card,
         know: CardKnowledge,
     },
@@ -542,7 +566,7 @@ impl Display for PlayerActionLog {
                 write!(
                     f,
                     "Player {player} hinted player {hinted_player} {} {} with {hint} at positions [",
-                    card_indices.len(), if card_indexes.len() == 1 { "card" } else {"cards"}
+                    card_indices.len(), if card_indices.len() == 1 { "card" } else {"cards"}
                 )?;
                 for (idx, card_idx) in card_indices.iter().enumerate() {
                     if idx == 0 {
@@ -860,7 +884,7 @@ impl Display for Game {
         writeln!(f)?;
 
         write!(f, " {:13} ", "")?;
-        for idx in 0..self.cards_per_player {
+        for idx in 1..=self.cards_per_player {
             write!(f, " {idx:^CARDWIDTH$}")?;
         }
         writeln!(f)?;
