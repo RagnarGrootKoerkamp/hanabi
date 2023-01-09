@@ -905,7 +905,7 @@ impl Display for Game {
         writeln!(f)?;
         for (pid, p) in self.players.iter().enumerate() {
             let this_turn_style = if self.next_player == Some(pid) {
-                Style::new().underline()
+                Style::new().bold()
             } else {
                 Style::new()
             };
