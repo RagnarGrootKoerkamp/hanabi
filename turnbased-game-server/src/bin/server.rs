@@ -123,12 +123,6 @@ struct ServerState<Game: GameT> {
 /// An action that can be sent over an incoming websocket.
 #[derive(Serialize, Deserialize)]
 enum Action<Game: GameT> {
-    // 'Fake' actions created by the server.
-    #[serde(skip)]
-    Connect(Sink),
-    #[serde(skip)]
-    Disconnect,
-
     /// Which user is using the socket.
     Login(UserId),
     /// User stopped used the socket.
@@ -204,33 +198,6 @@ impl<Game: GameT> ServerState<Game> {
         use Response::*;
 
         match action {
-            Action::Connect(sink) => {
-                eprintln!("{} connected", &clientid);
-                self.clients.insert(
-                    clientid,
-                    Client {
-                        sink: sink.clone(),
-                        userid: None,
-                        roomid: None,
-                    },
-                );
-                return Some(NotLoggedIn);
-            }
-            Action::Disconnect => {
-                eprintln!("{} disconnected", &clientid);
-                let Client { userid, roomid, .. } = self.clients.remove(&clientid).unwrap();
-                if let Some(room) = roomid {
-                    self.watchers_mut(room).retain(|x| x != &clientid);
-                }
-                if let Some(userid) = userid {
-                    self.users
-                        .get_mut(&userid)
-                        .unwrap()
-                        .sockets
-                        .retain(|x| x != &clientid);
-                }
-                return None;
-            }
             Action::Login(login_userid) => {
                 self.logout(clientid);
                 self.clients.get_mut(&clientid).unwrap().userid = Some(login_userid);
@@ -319,6 +286,34 @@ impl<Game: GameT> ServerState<Game> {
         None
     }
 
+    fn disconnect(&mut self, clientid: std::net::SocketAddr) {
+        eprintln!("{} disconnected", &clientid);
+        let Client { userid, roomid, .. } = self.clients.remove(&clientid).unwrap();
+        if let Some(room) = roomid {
+            self.watchers_mut(room).retain(|x| x != &clientid);
+        }
+        if let Some(userid) = userid {
+            self.users
+                .get_mut(&userid)
+                .unwrap()
+                .sockets
+                .retain(|x| x != &clientid);
+        }
+    }
+
+    fn connect(&mut self, clientid: std::net::SocketAddr, sink: Sink) {
+        eprintln!("{} connected", &clientid);
+        self.clients.insert(
+            clientid,
+            Client {
+                sink: sink.clone(),
+                userid: None,
+                roomid: None,
+            },
+        );
+        sink.send(Response::<Game>::NotLoggedIn);
+    }
+
     fn start_game(&mut self, userid: &UserId, roomid: RoomId) -> Result<(), &'static str> {
         let room = self.room_mut(roomid);
         if !room.players.contains(&userid) {
@@ -373,7 +368,7 @@ impl<Game: GameT> Server<Game> {
 
         // Wrap the internal sink to accept Action.
         let sink = Sink(sink);
-        self.handle_action(clientid, Action::Connect(sink));
+        self.state.lock().unwrap().connect(clientid, sink);
 
         // Process all incoming messages on this websocket.
         let handle_incoming = ws_incoming.try_for_each(|msg| {
@@ -391,7 +386,7 @@ impl<Game: GameT> Server<Game> {
         let result = future::select(handle_incoming, receive_from_others).await;
         eprintln!("CONNECTION RESULT {:?}", result);
 
-        self.handle_action(clientid, Action::Disconnect);
+        self.state.lock().unwrap().disconnect(clientid);
     }
 
     fn handle_action(&self, clientid: ClientId, action: Action<Game>) {
