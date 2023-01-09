@@ -86,6 +86,8 @@ impl<Game: GameT> Room<Game> {
 
 struct User {
     //userid: UserId,
+    // TODO: Fill this
+    //rooms: Vec<RoomId>,
     sockets: Vec<ClientId>,
 }
 
