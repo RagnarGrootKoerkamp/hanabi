@@ -345,11 +345,11 @@ impl Hand {
             None
         }
     }
-    /// Returns the hinted positions.
+    /// Returns the hinted indices.
     fn hint(&mut self, hint: Hint) -> Result<Vec<usize>, &'static str> {
         use KnowledgeState::*;
         let Hand::Visible(cards) = self else { panic!() };
-        let mut positions = vec![];
+        let mut card_indices = vec![];
         match hint {
             ValueHint(v) => {
                 if !(1..=MAX_VALUE).contains(&v) {
@@ -358,7 +358,7 @@ impl Hand {
                 for (card_idx, CardWithKnowledge(card, know)) in cards.iter_mut().enumerate() {
                     if v == card.v {
                         // Answer to hint is 'yes': fix the value of the card.
-                        positions.push(card_idx);
+                        card_indices.push(card_idx);
                         know.vs.fill(Impossible);
                         know.vs[v - 1] = Known;
                     } else {
@@ -378,7 +378,7 @@ impl Hand {
                 for (card_idx, CardWithKnowledge(card, know)) in cards.iter_mut().enumerate() {
                     if card.c == c || card.c == Color::Multi {
                         // Answer to hint is 'yes': remove other non-multi colors.
-                        positions.push(card_idx);
+                        card_indices.push(card_idx);
                         for ci in COLORS {
                             if ci != c && ci != Color::Multi {
                                 know.cs[ci] = Impossible;
@@ -397,7 +397,7 @@ impl Hand {
                 }
             }
         }
-        Ok(positions)
+        Ok(card_indices)
     }
     fn to_view(&mut self) {
         let Hand::Visible(cards) = std::mem::replace(self, Hand::Hidden(vec![])) else { panic!() };
@@ -410,7 +410,10 @@ impl Hand {
     }
 }
 
+/// 0-based player index. Shown to user as 1-based.
 pub type Player = usize;
+/// 0-based card index. Shown to user as 1-based.
+pub type CardIdx = usize;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Hint {
@@ -444,8 +447,8 @@ impl Display for Hint {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Action {
-    Play { card_idx: usize },
-    Discard { card_idx: usize },
+    Play { card_idx: CardIdx },
+    Discard { card_idx: CardIdx },
     Hint { hinted_player: Player, hint: Hint },
 }
 
@@ -491,7 +494,7 @@ pub enum ActionLog {
     Hint {
         hinted_player: Player,
         hint: Hint,
-        positions: Vec<usize>,
+        card_indices: Vec<CardIdx>,
     },
 }
 
@@ -534,14 +537,14 @@ impl Display for PlayerActionLog {
             ActionLog::Hint {
                 hinted_player,
                 hint,
-                positions,
+                card_indices,
             } => {
                 write!(
                     f,
                     "Player {player} hinted player {hinted_player} {} {} with {hint} at positions [",
-                    positions.len(), if positions.len() == 1 { "card" } else {"cards"}
+                    card_indices.len(), if card_indexes.len() == 1 { "card" } else {"cards"}
                 )?;
-                for (idx, card_idx) in positions.iter().enumerate() {
+                for (idx, card_idx) in card_indices.iter().enumerate() {
                     if idx == 0 {
                         write!(f, "{card_idx}")?;
                     } else {
@@ -726,13 +729,13 @@ impl Game {
                     return Err("Player out of range");
                 }
                 self.hints -= 1;
-                let positions = self.hands[hinted_player].hint(hint.clone())?;
+                let card_indices = self.hands[hinted_player].hint(hint.clone())?;
                 self.action_log.push(PlayerActionLog {
                     player,
                     action: ActionLog::Hint {
                         hinted_player,
                         hint,
-                        positions,
+                        card_indices,
                     },
                 })
             }
