@@ -20,23 +20,23 @@ type UserId = String;
 struct RoomId(usize);
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(bound = "")]
 enum RoomState<Game: GameT> {
     WaitingForPlayers {
-        settings: Game::Settings,
         min_players: usize,
         max_players: usize,
     },
-    #[serde(bound = "")]
-    Started(Game),
-    #[serde(bound = "")]
-    Ended(Game),
+    // Game is None when viewing the list of all games.
+    Started(Option<Game>),
+    Ended(Option<Game>),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(bound = "")]
 struct Room<Game: GameT> {
     id: RoomId,
+    settings: Game::Settings,
     players: Vec<UserId>,
-    #[serde(bound = "")]
     state: RoomState<Game>,
     /// Sockets that are watching this room for updates.
     #[serde(skip)]
@@ -44,21 +44,35 @@ struct Room<Game: GameT> {
 }
 
 impl<Game: GameT> Room<Game> {
-    fn to_view(&self, user: &UserId) -> Result<Self, &'static str> {
-        Ok(Self {
+    fn to_list_item(&self) -> Self {
+        Self {
             id: self.id,
+            settings: self.settings.clone(),
             players: self.players.clone(),
             state: match &self.state {
-                RoomState::Started(g) => RoomState::Started(g.to_view(user)?),
+                RoomState::Started(g) => RoomState::Started(None),
+                RoomState::Ended(g) => RoomState::Ended(None),
                 s => s.clone(),
             },
             subscribers: vec![],
-        })
+        }
+    }
+    fn to_view(&self, userid: &UserId) -> Self {
+        Self {
+            id: self.id,
+            settings: self.settings.clone(),
+            players: self.players.clone(),
+            state: match &self.state {
+                RoomState::Started(g) => RoomState::Started(g.as_ref().map(|g| g.to_view(userid))),
+                s => s.clone(),
+            },
+            subscribers: vec![],
+        }
     }
 }
 
 struct User {
-    name: UserId,
+    userid: UserId,
     sockets: Vec<SocketAddr>,
 }
 
@@ -75,7 +89,7 @@ impl Sink {
 struct Client {
     sink: Sink,
     /// The user who opened the socket.
-    user: Option<UserId>,
+    userid: Option<UserId>,
     /// The room the socket is watching.
     room: Option<RoomId>,
 }
@@ -123,21 +137,96 @@ enum Action<Game: GameT> {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(bound = "")]
 enum Response<Game: GameT> {
-    Connected,
-    AlreadyLoggedIn,
-
-    LoggedIn,
-    AlreadyLoggedOut,
-    LoggedOut,
-
-    #[serde(bound = "")]
-    CreatedRoom(Room<Game>),
+    NotLoggedIn,
+    LoggedIn(UserId),
+    RoomList(Vec<Room<Game>>),
+    Room(Room<Game>),
 }
 
 #[derive(Clone)]
 struct Server<Game: GameT> {
     state: Arc<Mutex<ServerState<Game>>>,
+}
+
+impl<Game: GameT> ServerState<Game> {
+    fn room_list(&self) -> Response<Game> {
+        Response::RoomList(self.rooms.iter().map(|room| room.to_list_item()).collect())
+    }
+
+    fn handle_action_locked(
+        &mut self,
+        addr: SocketAddr,
+        action: Action<Game>,
+    ) -> Option<Response<Game>> {
+        use Response::*;
+
+        match action {
+            Action::Connect(sink) => {
+                eprintln!("{} connected", &addr);
+                self.clients.insert(
+                    addr,
+                    Client {
+                        sink: sink.clone(),
+                        userid: None,
+                        room: None,
+                    },
+                );
+                return Some(NotLoggedIn);
+            }
+            Action::Disconnect => {
+                eprintln!("{} disconnected", &addr);
+                let Client { userid, room, .. } = self.clients.remove(&addr).unwrap();
+                if let Some(room) = room {
+                    self.rooms[room.0].subscribers.retain(|x| x != &addr);
+                }
+                if let Some(userid) = userid {
+                    self.users
+                        .get_mut(&userid)
+                        .unwrap()
+                        .sockets
+                        .retain(|x| x != &addr);
+                }
+                return None;
+            }
+            _ => {}
+        };
+
+        let Client { sink, userid, room } = &mut self.clients.get_mut(&addr).unwrap();
+
+        match action {
+            Action::Login(login_userid) => {
+                if userid.is_some() {
+                    return Some(self.room_list());
+                } else {
+                    *userid = Some(login_userid);
+                    return Some(self.room_list());
+                }
+            }
+            Action::Logout => {
+                // Disassociate the user from the client.
+                if let Some(loggedin_userid) = userid {
+                    self.users
+                        .get_mut(loggedin_userid)
+                        .unwrap()
+                        .sockets
+                        .retain(|x| x != &addr);
+                    *userid = None;
+                    return Some(NotLoggedIn);
+                } else {
+                    return Some(NotLoggedIn);
+                }
+            }
+            Action::ViewRoom(roomid) => {}
+            Action::LeaveRoom => todo!(),
+            Action::JoinRoom(_) => todo!(),
+            Action::StartGame(_) => todo!(),
+            Action::MakeMove(_, _) => todo!(),
+            _ => unreachable!(),
+        };
+        unreachable!();
+    }
 }
 
 impl<Game: GameT> Server<Game> {
@@ -185,81 +274,10 @@ impl<Game: GameT> Server<Game> {
     }
 
     fn handle_action(&self, addr: SocketAddr, action: Action<Game>) -> Option<Response<Game>> {
-        Self::handle_action_locked(&mut self.state.lock().unwrap(), addr, action)
-    }
-
-    fn handle_action_locked(
-        server: &mut ServerState<Game>,
-        addr: SocketAddr,
-        action: Action<Game>,
-    ) -> Option<Response<Game>> {
-        use Response::*;
-
-        match action {
-            Action::Connect(sink) => {
-                eprintln!("{} connected", &addr);
-                server.clients.insert(
-                    addr,
-                    Client {
-                        sink: sink.clone(),
-                        user: None,
-                        room: None,
-                    },
-                );
-                return Some(Connected);
-            }
-            Action::Disconnect => {
-                eprintln!("{} disconnected", &addr);
-                let Client { user, room, .. } = server.clients.remove(&addr).unwrap();
-                if let Some(room) = room {
-                    server.rooms[room.0].subscribers.retain(|x| x != &addr);
-                }
-                if let Some(user) = user {
-                    server
-                        .users
-                        .get_mut(&user)
-                        .unwrap()
-                        .sockets
-                        .retain(|x| x != &addr);
-                }
-                return None;
-            }
-            _ => {}
-        };
-
-        let Client { sink, user, room } = &mut server.clients.get_mut(&addr).unwrap();
-
-        match action {
-            Action::Login(userid) => {
-                if user.is_some() {
-                    return Some(AlreadyLoggedIn);
-                } else {
-                    *user = Some(userid);
-                    return Some(LoggedIn);
-                }
-            }
-            Action::Logout => {
-                // Disassociate the user from the client.
-                if let Some(userid) = user {
-                    server
-                        .users
-                        .get_mut(userid)
-                        .unwrap()
-                        .sockets
-                        .retain(|x| x != &addr);
-                    *user = None;
-                    return Some(LoggedOut);
-                } else {
-                    return Some(AlreadyLoggedOut);
-                }
-            }
-            Action::ViewRoom(_) => todo!(),
-            Action::LeaveRoom => todo!(),
-            Action::JoinRoom(_) => todo!(),
-            Action::StartGame(_) => todo!(),
-            Action::MakeMove(_, _) => todo!(),
-            _ => unreachable!(),
-        };
+        self.state
+            .lock()
+            .unwrap()
+            .handle_action_locked(addr, action)
     }
 }
 

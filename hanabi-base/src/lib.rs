@@ -961,7 +961,7 @@ pub trait GameT: Sized + Debug + Serialize + DeserializeOwned + Clone {
     type Move: Debug + Serialize + DeserializeOwned + Clone;
     fn new(player_names: Vec<String>, settings: Self::Settings) -> Self;
     fn make_move(&mut self, player: &String, mov: Move) -> Result<(), &'static str>;
-    fn to_view(&self, player: &String) -> Result<Self, &'static str>;
+    fn to_view(&self, player: &String) -> Self;
 }
 
 impl GameT for Game {
@@ -976,7 +976,10 @@ impl GameT for Game {
         Self::make_move(self, self.player_id(player).ok_or("Player not found")?, mov)
     }
 
-    fn to_view(&self, player: &String) -> Result<Self, &'static str> {
-        Ok(self.to_view(self.player_id(player).ok_or("Player not found")?))
+    fn to_view(&self, player: &String) -> Self {
+        match self.player_id(player) {
+            Some(player) => self.to_view(player),
+            None => self.clone(),
+        }
     }
 }
