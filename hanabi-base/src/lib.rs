@@ -465,7 +465,8 @@ impl FromStr for Action {
             }),
             "hint" => Ok(Action::Hint {
                 hinted_player: usize::from_str(tokens.next().ok_or("Missing player")?)
-                    .map_err(|_| "Could not parse player.")?,
+                    .map_err(|_| "Could not parse player.")?
+                    - 1,
                 hint: Hint::from_str(tokens.next().ok_or("Missing hint")?)?,
             }),
 
@@ -594,7 +595,7 @@ impl GameVariant {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Game {
     // data
-    num_players: Player,
+    players: Vec<String>,
     start_player: Player,
     /// None when the game has ended.
     next_player: Option<Player>,
@@ -617,7 +618,8 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(num_players: Player, variant: GameVariant) -> Self {
+    pub fn new(players: Vec<String>, variant: GameVariant) -> Self {
+        let num_players = players.len();
         let start_player = thread_rng().gen_range(0..num_players);
         let cards_per_player = match num_players {
             2 | 3 => 5,
@@ -630,7 +632,7 @@ impl Game {
             .collect();
 
         Self {
-            num_players,
+            players,
             start_player,
             next_player: Some(start_player),
             last_player: None,
@@ -712,7 +714,7 @@ impl Game {
                 if hinted_player == player {
                     return Err("Hinting yourself is not allowed.");
                 }
-                if !(0..self.num_players).contains(&hinted_player) {
+                if !(0..self.players.len()).contains(&hinted_player) {
                     return Err("Player out of range");
                 }
                 self.hints -= 1;
@@ -737,7 +739,7 @@ impl Game {
         self.next_player = if self.lives == 0 || self.last_player == Some(player) {
             None
         } else {
-            Some((player + 1) % self.num_players)
+            Some((player + 1) % self.players.len())
         };
         Ok(())
     }
@@ -846,19 +848,23 @@ impl Display for Game {
         }
         writeln!(f)?;
 
-        write!(f, "   ")?;
+        write!(f, " {:13} ", "")?;
         for idx in 0..self.cards_per_player {
             write!(f, " {idx:^CARDWIDTH$}")?;
         }
         writeln!(f)?;
-        for p in 0..self.num_players {
-            let this_turn_style = if self.next_player == Some(p) {
+        for (pid, p) in self.players.iter().enumerate() {
+            let this_turn_style = if self.next_player == Some(pid) {
                 Style::new().underline()
             } else {
                 Style::new()
             };
-            write!(f, "{}", format!(" {p} ").style(this_turn_style))?;
-            match &self.hands[p] {
+            write!(
+                f,
+                "{}",
+                format!(" {}: {p:10} ", pid + 1).style(this_turn_style)
+            )?;
+            match &self.hands[pid] {
                 Hand::Visible(hand) => {
                     for card_with_know in hand {
                         write!(f, " {card_with_know:^CARDWIDTH$}")?;
@@ -879,7 +885,7 @@ impl Display for Game {
             .iter()
             .enumerate()
             .rev()
-            .take(self.num_players)
+            .take(self.players.len())
         {
             writeln!(f, " {id:2}: {action}")?;
         }

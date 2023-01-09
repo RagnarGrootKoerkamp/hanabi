@@ -1,16 +1,20 @@
 use std::str::FromStr;
 
-use hanabi_base::{Action, Game, GameVariant, Move};
-use text_io::read;
+use hanabi_base::{Action, Game, GameVariant};
+use text_io::{read, try_read};
 
 pub fn main() {
-    eprintln!("Number of players? ");
+    eprintln!("Number of players? [3]");
     eprint!(" ");
-    let num_players: usize = read!("{}\n");
-    eprintln!("Variant? Base | Multi | MultiHard ");
+    let num_players: usize = try_read!("{}\n").unwrap_or(3);
+    eprintln!("Variant? [Base] Base | Multi | MultiHard ");
     eprint!(" ");
-    let variant: GameVariant = read!("{}\n");
-    let mut game = Game::new(num_players, variant);
+    let variant: GameVariant = try_read!("{}\n").unwrap_or(GameVariant::Base);
+    let players = (1..)
+        .take(num_players)
+        .map(|id| format!("Player{id}"))
+        .collect();
+    let mut game = Game::new(players, variant);
     while let Some(next_player) = game.next_player() {
         eprintln!("{}", game.to_view(next_player));
         eprintln!("move:");
