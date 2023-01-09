@@ -166,6 +166,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee74b5019b48991b09803402aaf9e65a053b3993fe9d9c475ab67a395358ba76"
 
 [[package]]
+name = "turnbased-game-server"
+version = "0.1.0"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
