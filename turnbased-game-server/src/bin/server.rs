@@ -1,6 +1,3 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
-
 use derivative::Derivative;
 use futures_channel::mpsc::{unbounded, UnboundedSender};
 use futures_util::{future, pin_mut, stream::TryStreamExt, StreamExt};
@@ -63,8 +60,8 @@ impl<Game: GameT> Room<Game> {
             settings: self.settings.clone(),
             players: self.players.clone(),
             state: match &self.state {
-                RoomState::Started(g) => RoomState::Started(None),
-                RoomState::Ended(g) => RoomState::Ended(None),
+                RoomState::Started(_) => RoomState::Started(None),
+                RoomState::Ended(_) => RoomState::Ended(None),
                 s => s.clone(),
             },
             watchers: vec![],
@@ -93,7 +90,7 @@ impl<Game: GameT> Room<Game> {
 }
 
 struct User {
-    userid: UserId,
+    //userid: UserId,
     sockets: Vec<ClientId>,
 }
 
@@ -324,7 +321,7 @@ impl<Game: GameT> ServerState<Game> {
     fn logout(&mut self, clientid: ClientId) {
         self.leave_room(clientid);
         // Disassociate the user from the client.
-        let Client { userid, roomid, .. } = &mut self.clients.get_mut(&clientid).unwrap();
+        let userid = &mut self.clients.get_mut(&clientid).unwrap().userid;
         if let Some(loggedin_userid) = userid {
             self.users
                 .get_mut(loggedin_userid)
