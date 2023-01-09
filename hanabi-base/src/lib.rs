@@ -956,15 +956,15 @@ impl Display for Game {
     }
 }
 
-pub trait GameT<'de>: Sized + Debug + Serialize + Deserialize<'de> {
-    type Settings;
-    type Move: Serialize + DeserializeOwned;
+pub trait GameT: Sized + Debug + Serialize + DeserializeOwned + Clone {
+    type Settings: Debug + Serialize + DeserializeOwned + Clone;
+    type Move: Debug + Serialize + DeserializeOwned + Clone;
     fn new(player_names: Vec<String>, settings: Self::Settings) -> Self;
     fn make_move(&mut self, player: &String, mov: Move) -> Result<(), &'static str>;
     fn to_view(&self, player: &String) -> Result<Self, &'static str>;
 }
 
-impl<'de> GameT<'de> for Game {
+impl GameT for Game {
     type Settings = GameVariant;
     type Move = Move;
 
