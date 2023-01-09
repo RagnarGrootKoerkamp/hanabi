@@ -1,5 +1,7 @@
 pub mod server;
 
+use std::{fmt::Display, str::FromStr};
+
 use hanabi_base::GameT;
 use serde::{Deserialize, Serialize};
 
@@ -8,6 +10,20 @@ pub type UserId = String;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct RoomId(pub usize);
+
+impl Display for RoomId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl FromStr for RoomId {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(RoomId(s.parse().map_err(|_| "Could not parse room id")?))
+    }
+}
 
 pub type ClientId = std::net::SocketAddr;
 
@@ -32,6 +48,46 @@ pub struct Room<Game: GameT> {
     pub state: RoomState<Game>,
 }
 
+impl<Game: GameT> Display for Room<Game> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use RoomState::*;
+        let Room {
+            roomid,
+            settings,
+            players,
+            state,
+        } = &self;
+
+        let status = match state {
+            WaitingForPlayers { .. } => "pending",
+            Started(_) => "started",
+            Ended(_) => "ended",
+        };
+        match state {
+            RoomState::WaitingForPlayers {
+                min_players,
+                max_players,
+            } => {
+                write!(
+                    f,
+                    "{roomid:>5}: {status:7} {settings:<20} {min_players}-{max_players}  {}",
+                    players.join(", ")
+                )
+            }
+            Started(None) | Ended(None) => {
+                write!(
+                    f,
+                    "{roomid:>5}: {status:7} {settings:<20}     {}",
+                    players.join(", ")
+                )
+            }
+            Started(Some(g)) | Ended(Some(g)) => {
+                write!(f, "{}", g)
+            }
+        }
+    }
+}
+
 /// An action that can be sent over an incoming websocket.
 #[derive(Serialize, Deserialize)]
 pub enum Action<Game: GameT> {
@@ -47,6 +103,7 @@ pub enum Action<Game: GameT> {
     LeaveRoom,
 
     /// Create a new room.
+    // TODO
     NewRoom,
     /// Join the current room if it is waiting for players.
     JoinRoom,
@@ -58,6 +115,29 @@ pub enum Action<Game: GameT> {
     MakeMove(Game::Move),
 }
 
+impl<Game: GameT> FromStr for Action<Game> {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use Action::*;
+        let mut tokens = s.split_ascii_whitespace();
+        let mov = match tokens.next().ok_or("Empty string")? {
+            "login" => Login(tokens.next().ok_or("missing user id")?.into()),
+            "logout" => Logout,
+            "enter" => WatchRoom(tokens.next().ok_or("missing room id")?.parse()?),
+            "leave" => LeaveRoom,
+            "new" => NewRoom,
+            "join" => JoinRoom,
+            "start" => StartGame,
+            _ => MakeMove(s.parse()?),
+        };
+        if !matches!(mov, MakeMove(_)) && tokens.next().is_some() {
+            return Err("Trailing tokens");
+        }
+        Ok(mov)
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(bound = "")]
 pub enum Response<Game: GameT> {
@@ -67,7 +147,24 @@ pub enum Response<Game: GameT> {
     Error(String),
 }
 
-// implementations
+impl<Game: GameT> Display for Response<Game> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Response::NotLoggedIn => write!(f, "Please log in: login <username>"),
+            Response::Error(err) => write!(f, "Error: {err}"),
+            Response::RoomList(rooms) => {
+                writeln!(f, "Rooms:")?;
+                for room in rooms {
+                    writeln!(f, " {room}")?;
+                }
+                Ok(())
+            }
+            Response::Room(room) => writeln!(f, "{room}"),
+        }
+    }
+}
+
+// server-only implementations
 
 impl<Game: GameT> RoomState<Game> {
     pub fn make_move(&mut self, userid: &String, mov: Game::Move) -> Result<(), &'static str> {

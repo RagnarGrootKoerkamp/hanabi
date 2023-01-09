@@ -477,14 +477,14 @@ impl FromStr for Move {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut tokens = s.split_ascii_whitespace();
-        match tokens.next().ok_or("Empty string")? {
-            "play" => Ok(Move::Play {
+        let mov = match tokens.next().ok_or("Empty string")? {
+            "play" => Move::Play {
                 card_idx: tokens.next().ok_or("Missing index")?.parse()?,
-            }),
-            "discard" => Ok(Move::Discard {
+            },
+            "discard" => Move::Discard {
                 card_idx: tokens.next().ok_or("Missing index")?.parse()?,
-            }),
-            "hint" => Ok(Move::Hint {
+            },
+            "hint" => Move::Hint {
                 hinted_player: tokens
                     .next()
                     .ok_or("Missing player")?
@@ -492,10 +492,14 @@ impl FromStr for Move {
                     .map_err(|_| "Could not parse player.")?
                     - 1,
                 hint: tokens.next().ok_or("Missing hint")?.parse()?,
-            }),
+            },
 
-            _ => return Err("Unknown move"),
+            _ => return Err("Unknown action"),
+        };
+        if tokens.next().is_some() {
+            return Err("Trailing tokens");
         }
+        Ok(mov)
     }
 }
 
@@ -956,9 +960,9 @@ impl Display for Game {
     }
 }
 
-pub trait GameT: Sized + Debug + Serialize + DeserializeOwned + Clone {
-    type Settings: Debug + Serialize + DeserializeOwned + Clone;
-    type Move: Debug + Serialize + DeserializeOwned + Clone;
+pub trait GameT: Sized + Debug + Display + Serialize + DeserializeOwned + Clone {
+    type Settings: Debug + Display + Serialize + DeserializeOwned + Clone;
+    type Move: Debug + Serialize + DeserializeOwned + Clone + FromStr<Err = &'static str>;
     fn new(player_names: Vec<String>, settings: Self::Settings) -> Self;
     fn make_move(&mut self, player: &String, mov: Self::Move) -> Result<(), &'static str>;
     fn to_view(&self, player: &String) -> Self;
