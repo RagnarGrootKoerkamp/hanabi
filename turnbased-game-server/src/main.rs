@@ -7,17 +7,17 @@ use futures_util::{future, pin_mut, stream::TryStreamExt, StreamExt};
 use hanabi_base::GameT;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::protocol::Message;
 
-/// SERVER STATE
-
 // TODO: Separate Player id and name. For now the name is the id.
 type UserId = String;
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 struct RoomId(usize);
+
+type ClientId = std::net::SocketAddr;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(bound = "")]
@@ -31,22 +31,35 @@ enum RoomState<Game: GameT> {
     Ended(Option<Game>),
 }
 
+impl<Game: GameT> RoomState<Game> {
+    fn make_move(&mut self, userid: &String, mov: Game::Move) -> Result<(), &'static str> {
+        match self {
+            RoomState::WaitingForPlayers { .. } => Err("Game did not start yet"),
+            RoomState::Started(g) => {
+                let g = g.as_mut().unwrap();
+                g.make_move(userid, mov)
+            }
+            RoomState::Ended(_) => Err("Game already finished"),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(bound = "")]
 struct Room<Game: GameT> {
-    id: RoomId,
+    roomid: RoomId,
     settings: Game::Settings,
     players: Vec<UserId>,
     state: RoomState<Game>,
     /// Sockets that are watching this room for updates.
     #[serde(skip)]
-    subscribers: Vec<SocketAddr>,
+    watchers: Vec<ClientId>,
 }
 
 impl<Game: GameT> Room<Game> {
     fn to_list_item(&self) -> Self {
         Self {
-            id: self.id,
+            roomid: self.roomid,
             settings: self.settings.clone(),
             players: self.players.clone(),
             state: match &self.state {
@@ -54,26 +67,34 @@ impl<Game: GameT> Room<Game> {
                 RoomState::Ended(g) => RoomState::Ended(None),
                 s => s.clone(),
             },
-            subscribers: vec![],
+            watchers: vec![],
         }
     }
     fn to_view(&self, userid: &UserId) -> Self {
         Self {
-            id: self.id,
+            roomid: self.roomid,
             settings: self.settings.clone(),
             players: self.players.clone(),
             state: match &self.state {
                 RoomState::Started(g) => RoomState::Started(g.as_ref().map(|g| g.to_view(userid))),
                 s => s.clone(),
             },
-            subscribers: vec![],
+            watchers: vec![],
         }
+    }
+
+    fn start_game(&mut self) {
+        let RoomState::WaitingForPlayers {..} = self.state else {
+            return;
+        };
+        self.state =
+            RoomState::Started(Some(Game::new(self.players.clone(), self.settings.clone())));
     }
 }
 
 struct User {
     userid: UserId,
-    sockets: Vec<SocketAddr>,
+    sockets: Vec<ClientId>,
 }
 
 #[derive(Clone)]
@@ -91,7 +112,7 @@ struct Client {
     /// The user who opened the socket.
     userid: Option<UserId>,
     /// The room the socket is watching.
-    room: Option<RoomId>,
+    roomid: Option<RoomId>,
 }
 
 #[derive(Derivative)]
@@ -102,7 +123,7 @@ struct ServerState<Game: GameT> {
     /// All rooms in the server.
     rooms: Vec<Room<Game>>,
     /// All currently open sockets.
-    clients: HashMap<SocketAddr, Client>,
+    clients: HashMap<ClientId, Client>,
 }
 
 /// An action that can be sent over an incoming websocket.
@@ -121,8 +142,8 @@ enum Action<Game: GameT> {
 
     /// Create a new room.
     NewRoom,
-    /// Open and view a room (but do not join it).
-    ViewRoom(RoomId),
+    /// View a room and subscribe to updates.
+    WatchRoom(RoomId),
     /// Stop viewing a room. Tells the server to stop sending updates for the
     /// viewed room.
     LeaveRoom,
@@ -140,9 +161,9 @@ enum Action<Game: GameT> {
 #[serde(bound = "")]
 enum Response<Game: GameT> {
     NotLoggedIn,
-    LoggedIn(UserId),
     RoomList(Vec<Room<Game>>),
     Room(Room<Game>),
+    Error(&'static str),
 }
 
 #[derive(Clone)]
@@ -151,81 +172,157 @@ struct Server<Game: GameT> {
 }
 
 impl<Game: GameT> ServerState<Game> {
+    fn room(&self, roomid: RoomId) -> &Room<Game> {
+        &self.rooms[roomid.0]
+    }
+    fn room_mut(&mut self, roomid: RoomId) -> &mut Room<Game> {
+        &mut self.rooms[roomid.0]
+    }
+
+    fn client(&self, clientid: ClientId) -> &Client {
+        self.clients.get(&clientid).unwrap()
+    }
+    fn client_mut(&mut self, clientid: ClientId) -> &mut Client {
+        self.clients.get_mut(&clientid).unwrap()
+    }
+
     fn room_list(&self) -> Response<Game> {
         Response::RoomList(self.rooms.iter().map(|room| room.to_list_item()).collect())
     }
 
-    fn handle_action_locked(
+    fn handle_action(
         &mut self,
-        addr: SocketAddr,
+        clientid: ClientId,
         action: Action<Game>,
     ) -> Option<Response<Game>> {
         use Response::*;
 
         match action {
             Action::Connect(sink) => {
-                eprintln!("{} connected", &addr);
+                eprintln!("{} connected", &clientid);
                 self.clients.insert(
-                    addr,
+                    clientid,
                     Client {
                         sink: sink.clone(),
                         userid: None,
-                        room: None,
+                        roomid: None,
                     },
                 );
                 return Some(NotLoggedIn);
             }
             Action::Disconnect => {
-                eprintln!("{} disconnected", &addr);
-                let Client { userid, room, .. } = self.clients.remove(&addr).unwrap();
-                if let Some(room) = room {
-                    self.rooms[room.0].subscribers.retain(|x| x != &addr);
+                eprintln!("{} disconnected", &clientid);
+                let Client { userid, roomid, .. } = self.clients.remove(&clientid).unwrap();
+                if let Some(room) = roomid {
+                    self.rooms[room.0].watchers.retain(|x| x != &clientid);
                 }
                 if let Some(userid) = userid {
                     self.users
                         .get_mut(&userid)
                         .unwrap()
                         .sockets
-                        .retain(|x| x != &addr);
+                        .retain(|x| x != &clientid);
                 }
                 return None;
+            }
+            Action::Login(login_userid) => {
+                self.logout(clientid);
+                self.clients.get_mut(&clientid).unwrap().userid = Some(login_userid);
+                return Some(self.room_list());
+            }
+            Action::Logout => {
+                self.logout(clientid);
+                return Some(NotLoggedIn);
+            }
+            Action::LeaveRoom => {
+                self.leave_room(clientid);
+                return Some(self.room_list());
             }
             _ => {}
         };
 
-        let Client { sink, userid, room } = &mut self.clients.get_mut(&addr).unwrap();
+        let Some(userid) = self.client(clientid).userid.clone() else {
+            return Some(NotLoggedIn);
+        };
 
-        match action {
-            Action::Login(login_userid) => {
-                if userid.is_some() {
-                    return Some(self.room_list());
-                } else {
-                    *userid = Some(login_userid);
-                    return Some(self.room_list());
-                }
+        // All the remaining actions return an updated status of the room.
+        let roomid = match action {
+            Action::WatchRoom(roomid) => {
+                self.leave_room(clientid);
+                self.client_mut(clientid).roomid = Some(roomid);
+                self.room_mut(roomid).watchers.push(clientid);
+                roomid
             }
-            Action::Logout => {
-                // Disassociate the user from the client.
-                if let Some(loggedin_userid) = userid {
-                    self.users
-                        .get_mut(loggedin_userid)
-                        .unwrap()
-                        .sockets
-                        .retain(|x| x != &addr);
-                    *userid = None;
-                    return Some(NotLoggedIn);
-                } else {
-                    return Some(NotLoggedIn);
+            Action::JoinRoom(roomid) => {
+                let room = self.room_mut(roomid);
+                let RoomState::WaitingForPlayers { max_players, .. } = room.state else {
+                    return Some(Error("Room is not waiting for players"));
+                };
+                if room.players.iter().find(|&x| x == &userid).is_some() {
+                    return Some(Error("User is already in room"));
                 }
+                if room.players.len() == max_players {
+                    return Some(Error("Room is already full"));
+                }
+                room.players.push(userid.clone());
+                if room.players.len() == max_players {
+                    if let Err(err) = self.start_game(&userid, roomid) {
+                        return Some(Error(err));
+                    }
+                }
+                roomid
             }
-            Action::ViewRoom(roomid) => {}
-            Action::LeaveRoom => todo!(),
-            Action::JoinRoom(_) => todo!(),
-            Action::StartGame(_) => todo!(),
-            Action::MakeMove(_, _) => todo!(),
+            Action::StartGame(roomid) => {
+                if let Err(err) = self.start_game(&userid, roomid) {
+                    return Some(Error(err));
+                }
+                roomid
+            }
+            Action::MakeMove(roomid, mov) => {
+                let room = self.room_mut(roomid);
+                if !room.players.contains(&userid) {
+                    return Some(Error("User did not join room"));
+                }
+                if let Err(err) = room.state.make_move(&userid, mov) {
+                    return Some(Error(err));
+                }
+
+                roomid
+            }
             _ => unreachable!(),
         };
-        unreachable!();
+        Some(Room(self.room(roomid).to_view(&userid)))
+    }
+
+    fn start_game(&mut self, userid: &UserId, roomid: RoomId) -> Result<(), &'static str> {
+        let room = self.room_mut(roomid);
+        if !room.players.contains(&userid) {
+            Err("User did not join room")
+        } else {
+            Ok(room.start_game())
+        }
+    }
+
+    fn leave_room(&mut self, clientid: ClientId) {
+        let room = &mut self.clients.get_mut(&clientid).unwrap().roomid;
+        if let Some(roomid) = room {
+            self.rooms[roomid.0].watchers.retain(|x| x != &clientid);
+            *room = None;
+        }
+    }
+
+    fn logout(&mut self, clientid: ClientId) {
+        self.leave_room(clientid);
+        // Disassociate the user from the client.
+        let Client { userid, roomid, .. } = &mut self.clients.get_mut(&clientid).unwrap();
+        if let Some(loggedin_userid) = userid {
+            self.users
+                .get_mut(loggedin_userid)
+                .unwrap()
+                .sockets
+                .retain(|x| x != &clientid);
+            *userid = None;
+        }
     }
 }
 
@@ -236,11 +333,11 @@ impl<Game: GameT> Server<Game> {
         }
     }
 
-    async fn handle_connection(self, raw_stream: TcpStream, addr: SocketAddr) {
+    async fn handle_connection(self, raw_stream: TcpStream, clientid: ClientId) {
         let ws_stream = tokio_tungstenite::accept_async(raw_stream)
             .await
             .expect("Error during the websocket handshake occurred");
-        println!("WebSocket connection established: {}", addr);
+        println!("WebSocket connection established: {}", clientid);
 
         // Write and read part of the websocket stream.
         let (ws_outgoing, ws_incoming) = ws_stream.split();
@@ -252,12 +349,12 @@ impl<Game: GameT> Server<Game> {
 
         // Wrap the internal sink to accept Action.
         let sink = Sink(sink);
-        self.handle_action(addr, Action::Connect(sink));
+        self.handle_action(clientid, Action::Connect(sink));
 
         // Process all incoming messages on this websocket.
         let handle_incoming = ws_incoming.try_for_each(|msg| {
             match serde_json::from_slice(&msg.into_data()) {
-                Ok(action) => self.handle_action(addr, action),
+                Ok(action) => self.handle_action(clientid, action),
                 Err(err) => {
                     eprintln!("Failed to parse message as json: {:?}", err);
                     return future::ok(());
@@ -270,14 +367,14 @@ impl<Game: GameT> Server<Game> {
         let result = future::select(handle_incoming, receive_from_others).await;
         eprintln!("CONNECTION RESULT {:?}", result);
 
-        self.handle_action(addr, Action::Disconnect);
+        self.handle_action(clientid, Action::Disconnect);
     }
 
-    fn handle_action(&self, addr: SocketAddr, action: Action<Game>) -> Option<Response<Game>> {
-        self.state
-            .lock()
-            .unwrap()
-            .handle_action_locked(addr, action)
+    fn handle_action(&self, clientid: ClientId, action: Action<Game>) {
+        let server = &mut self.state.lock().unwrap();
+        if let Some(response) = server.handle_action(clientid, action) {
+            server.client(clientid).sink.send(response);
+        }
     }
 }
 
@@ -286,7 +383,7 @@ async fn main() {
     let server = Server::<hanabi_base::Game>::default();
 
     let listener = TcpListener::bind("127.0.0.1:9284").await.unwrap();
-    while let Ok((stream, addr)) = listener.accept().await {
-        tokio::spawn(server.clone().handle_connection(stream, addr));
+    while let Ok((stream, clientid)) = listener.accept().await {
+        tokio::spawn(server.clone().handle_connection(stream, clientid));
     }
 }
