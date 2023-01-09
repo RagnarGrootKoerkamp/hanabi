@@ -1,12 +1,12 @@
 use std::{
-    fmt::Display,
+    fmt::{Debug, Display},
     ops::{Index, IndexMut},
     str::FromStr,
 };
 
 use owo_colors::{OwoColorize, Style};
 use rand::{seq::SliceRandom, thread_rng, Rng};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 const MAX_HINTS: usize = 8;
 const MAX_LIVES: usize = 3;
@@ -100,7 +100,7 @@ pub struct Card {
 }
 const CARDWIDTH: usize = COLORWIDTH + 2;
 
-impl std::fmt::Display for Card {
+impl Display for Card {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.c.to_style().fmt_prefix(f)?;
         f.pad(&format!("{} {}", self.c, self.v))?;
@@ -431,7 +431,7 @@ impl FromStr for CardIdx {
 
 impl Display for CardIdx {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        Display::fmt(&self.0, f)
     }
 }
 
@@ -694,6 +694,10 @@ impl Game {
         }
     }
 
+    pub fn player_id(&self, player: &String) -> Option<Player> {
+        self.players.iter().position(|x| x == player)
+    }
+
     pub fn make_move(&mut self, player: Player, mov: Move) -> Result<(), &'static str> {
         let next_player = self.next_player.ok_or("Game has ended.")?;
         if player != next_player {
@@ -949,5 +953,30 @@ impl Display for Game {
             )?;
         }
         Ok(())
+    }
+}
+
+pub trait GameT<'de>: Sized + Debug + Serialize + Deserialize<'de> {
+    type Settings;
+    type Move: Serialize + DeserializeOwned;
+    fn new(player_names: Vec<String>, settings: Self::Settings) -> Self;
+    fn make_move(&mut self, player: &String, mov: Move) -> Result<(), &'static str>;
+    fn to_view(&self, player: &String) -> Result<Self, &'static str>;
+}
+
+impl<'de> GameT<'de> for Game {
+    type Settings = GameVariant;
+    type Move = Move;
+
+    fn new(players: Vec<String>, variant: Self::Settings) -> Self {
+        Self::new(players, variant)
+    }
+
+    fn make_move(&mut self, player: &String, mov: Move) -> Result<(), &'static str> {
+        Self::make_move(self, self.player_id(player).ok_or("Player not found")?, mov)
+    }
+
+    fn to_view(&self, player: &String) -> Result<Self, &'static str> {
+        Ok(self.to_view(self.player_id(player).ok_or("Player not found")?))
     }
 }
