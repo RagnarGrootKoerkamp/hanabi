@@ -19,7 +19,7 @@ struct Sink(UnboundedSender<Message>);
 
 impl Sink {
     fn send(&self, response: Response<impl GameT>) {
-        let message = Message::Text(serde_json::to_string(&response).unwrap());
+        let message = Message::Binary(serde_json::to_vec(&response).unwrap());
         self.0.unbounded_send(message).unwrap();
     }
 }
@@ -298,6 +298,9 @@ impl<Game: GameT> Server<Game> {
 
         // Process all incoming messages on this websocket.
         let handle_incoming = ws_incoming.try_for_each(|msg| {
+            if !msg.is_binary() {
+                return future::ok(());
+            }
             match serde_json::from_slice(&msg.into_data()) {
                 Ok(action) => self.handle_action(clientid, action),
                 Err(err) => {
@@ -309,8 +312,7 @@ impl<Game: GameT> Server<Game> {
         });
 
         pin_mut!(handle_incoming, receive_from_others);
-        let result = future::select(handle_incoming, receive_from_others).await;
-        eprintln!("CONNECTION RESULT {:?}", result);
+        future::select(handle_incoming, receive_from_others).await;
 
         self.state.lock().unwrap().disconnect(clientid);
     }
