@@ -147,14 +147,14 @@ enum Action<Game: GameT> {
     /// Stop viewing a room. Tells the server to stop sending updates for the
     /// viewed room.
     LeaveRoom,
-    /// Join a room that is waiting for players.
-    JoinRoom(RoomId),
+    /// Join the current room if it is waiting for players.
+    JoinRoom,
 
-    /// Start the game in the room.
-    StartGame(RoomId),
+    /// Start the game in the current room.
+    StartGame,
 
-    /// Make a move in the given room.
-    MakeMove(RoomId, Game::Move),
+    /// Make a move in the current room.
+    MakeMove(Game::Move),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -241,19 +241,29 @@ impl<Game: GameT> ServerState<Game> {
             _ => {}
         };
 
-        let Some(userid) = self.client(clientid).userid.clone() else {
+        // Remaining actions require a user to be logged in.
+        let &Client { userid, roomid, .. } = &self.client(clientid);
+        let Some(userid) = userid.clone() else {
             return Some(NotLoggedIn);
         };
 
-        // All the remaining actions return an updated status of the room.
-        let roomid = match action {
+        match action {
             Action::WatchRoom(roomid) => {
                 self.leave_room(clientid);
                 self.client_mut(clientid).roomid = Some(roomid);
                 self.room_mut(roomid).watchers.push(clientid);
-                roomid
+                return Some(Room(self.room(roomid).to_view(&userid)));
             }
-            Action::JoinRoom(roomid) => {
+            _ => {}
+        }
+
+        // Remaining actions act on a room.
+        let Some(roomid) = *roomid else {
+            return None;
+        };
+
+        match action {
+            Action::JoinRoom => {
                 let room = self.room_mut(roomid);
                 let RoomState::WaitingForPlayers { max_players, .. } = room.state else {
                     return Some(Error("Room is not waiting for players"));
@@ -272,13 +282,13 @@ impl<Game: GameT> ServerState<Game> {
                 }
                 roomid
             }
-            Action::StartGame(roomid) => {
+            Action::StartGame => {
                 if let Err(err) = self.start_game(&userid, roomid) {
                     return Some(Error(err));
                 }
                 roomid
             }
-            Action::MakeMove(roomid, mov) => {
+            Action::MakeMove(mov) => {
                 let room = self.room_mut(roomid);
                 if !room.players.contains(&userid) {
                     return Some(Error("User did not join room"));
