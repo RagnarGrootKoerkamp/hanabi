@@ -233,14 +233,8 @@ impl Display for CardKnowledge {
         // else:
         // ?
 
-        let c = if let Some(c) = self.cs.find_eq(Known) {
-            Some(c)
-        } else if self.cs[Color::Multi] == Possible && self.cs.count_eq(Possible) == 2 {
-            todo!();
-            //format!("{}*", self.cs.find_eq(Possible).unwrap())
-        } else {
-            None
-        };
+        // TODO: Handling of multi.
+        let c = self.cs.find_eq(Known);
 
         // v: 1/2/3/4/5 or ?
         let v = self.vs.iter().position(|&k| k == Known);
@@ -284,23 +278,66 @@ impl CardKnowledge {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CardWithKnowledge(Card, CardKnowledge);
+
+impl Display for CardWithKnowledge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use KnowledgeState::*;
+        // Put an underline under the color/value once it is known.
+
+        let to_style = |k| {
+            if k {
+                Style::new().underline()
+            } else {
+                Style::new()
+            }
+        };
+        let color_style = to_style(self.1.cs.find_eq(Known).is_some());
+        let value_style = to_style(self.1.vs.iter().position(|&x| x == Known).is_some());
+
+        let len = format!("{} {}", self.0.c, self.0.v).len();
+        if let Some(width) = f.width() {
+            write!(
+                f,
+                "{}{} {}{}",
+                " ".repeat((width - len as usize) / 2),
+                self.0.c.style(color_style).style(self.0.c.to_style()),
+                self.0.v.style(value_style).style(self.0.c.to_style()),
+                " ".repeat((width - len as usize + 1) / 2),
+            )?;
+        } else {
+            write!(
+                f,
+                "{} {}",
+                self.0.c.style(color_style).style(self.0.c.to_style()),
+                self.0.v.style(value_style).style(self.0.c.to_style()),
+            )?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Hand {
-    Visible(Vec<(Card, CardKnowledge)>),
+    Visible(Vec<CardWithKnowledge>),
     Hidden(Vec<CardKnowledge>),
 }
 
 impl Hand {
     fn new(variant: GameVariant, cards_per_player: usize, deck: &mut Deck) -> Self {
         let cards = (0..cards_per_player)
-            .map(|_| (deck.take(), CardKnowledge::new(variant, Turn::Start)))
+            .map(|_| CardWithKnowledge(deck.take(), CardKnowledge::new(variant, Turn::Start)))
             .collect();
         Self::Visible(cards)
     }
     fn draw(&mut self, variant: GameVariant, deck: &mut Deck) {
         let Hand::Visible(cards) = self else { panic!() };
-        cards.push((deck.take(), CardKnowledge::new(variant, Turn::Start)))
+        cards.push(CardWithKnowledge(
+            deck.take(),
+            CardKnowledge::new(variant, Turn::Start),
+        ))
     }
-    fn take(&mut self, index: usize) -> Option<(Card, CardKnowledge)> {
+    fn take(&mut self, index: usize) -> Option<CardWithKnowledge> {
         let Hand::Visible(cards) = self else { panic!() };
         if index < cards.len() {
             Some(cards.remove(index))
@@ -318,7 +355,7 @@ impl Hand {
                 if !(1..=MAX_VALUE).contains(&v) {
                     return Err("Hinted value is out of range.");
                 }
-                for (pos, (card, know)) in cards.iter_mut().enumerate() {
+                for (pos, CardWithKnowledge(card, know)) in cards.iter_mut().enumerate() {
                     if v == card.v {
                         // Answer to hint is 'yes': fix the value of the card.
                         positions.push(pos);
@@ -338,7 +375,7 @@ impl Hand {
                 if c == Color::Multi {
                     return Err("Hinting multi is not allowed.");
                 }
-                for (pos, (card, know)) in cards.iter_mut().enumerate() {
+                for (pos, CardWithKnowledge(card, know)) in cards.iter_mut().enumerate() {
                     if card.c == c || card.c == Color::Multi {
                         // Answer to hint is 'yes': remove other non-multi colors.
                         positions.push(pos);
@@ -364,7 +401,12 @@ impl Hand {
     }
     fn to_view(&mut self) {
         let Hand::Visible(cards) = std::mem::replace(self, Hand::Hidden(vec![])) else { panic!() };
-        *self = Hand::Hidden(cards.into_iter().map(|(_card, know)| know).collect());
+        *self = Hand::Hidden(
+            cards
+                .into_iter()
+                .map(|CardWithKnowledge(_card, know)| know)
+                .collect(),
+        );
     }
 }
 
@@ -619,7 +661,7 @@ impl Game {
         // Do the move
         match mov.mov {
             Move::Play { pos } => {
-                let (card, know) = self.hands[player]
+                let CardWithKnowledge(card, know) = self.hands[player]
                     .take(pos)
                     .ok_or("Card index out of range.")?;
 
@@ -655,7 +697,7 @@ impl Game {
                 if self.hints == MAX_HINTS {
                     return Err("Already at max hints; discarding not allowed.");
                 }
-                let (card, know) = self.hands[player]
+                let CardWithKnowledge(card, know) = self.hands[player]
                     .take(pos)
                     .ok_or("Card index out of range.")?;
                 self.discarded.push(card.clone());
@@ -810,22 +852,22 @@ impl Display for Game {
         }
         writeln!(f)?;
 
-        write!(f, "  ")?;
+        write!(f, "   ")?;
         for idx in 0..self.cards_per_player {
             write!(f, " {idx:^CARDWIDTH$}")?;
         }
         writeln!(f)?;
         for p in 0..self.num_players {
-            let this_turn = if self.next_player == Some(p) {
-                '*'
+            let this_turn_style = if self.next_player == Some(p) {
+                Style::new().underline()
             } else {
-                ' '
+                Style::new()
             };
-            write!(f, "{this_turn}{p}")?;
+            write!(f, "{}", format!(" {p} ").style(this_turn_style))?;
             match &self.hands[p] {
                 Hand::Visible(hand) => {
-                    for (card, _know) in hand {
-                        write!(f, " {card:^CARDWIDTH$}")?;
+                    for card_with_know in hand {
+                        write!(f, " {card_with_know:^CARDWIDTH$}")?;
                     }
                 }
                 Hand::Hidden(hand) => {
@@ -844,7 +886,6 @@ impl Display for Game {
             .enumerate()
             .rev()
             .take(self.num_players)
-            .rev()
         {
             writeln!(f, " {id:2}: {mov}")?;
         }
