@@ -355,10 +355,10 @@ impl Hand {
                 if !(1..=MAX_VALUE).contains(&v) {
                     return Err("Hinted value is out of range.");
                 }
-                for (pos, CardWithKnowledge(card, know)) in cards.iter_mut().enumerate() {
+                for (card_idx, CardWithKnowledge(card, know)) in cards.iter_mut().enumerate() {
                     if v == card.v {
                         // Answer to hint is 'yes': fix the value of the card.
-                        positions.push(pos);
+                        positions.push(card_idx);
                         know.vs.fill(Impossible);
                         know.vs[v - 1] = Known;
                     } else {
@@ -375,10 +375,10 @@ impl Hand {
                 if c == Color::Multi {
                     return Err("Hinting multi is not allowed.");
                 }
-                for (pos, CardWithKnowledge(card, know)) in cards.iter_mut().enumerate() {
+                for (card_idx, CardWithKnowledge(card, know)) in cards.iter_mut().enumerate() {
                     if card.c == c || card.c == Color::Multi {
                         // Answer to hint is 'yes': remove other non-multi colors.
-                        positions.push(pos);
+                        positions.push(card_idx);
                         for ci in COLORS {
                             if ci != c && ci != Color::Multi {
                                 know.cs[ci] = Impossible;
@@ -444,8 +444,8 @@ impl Display for Hint {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Action {
-    Play { pos: usize },
-    Discard { pos: usize },
+    Play { card_idx: usize },
+    Discard { card_idx: usize },
     Hint { hinted_player: Player, hint: Hint },
 }
 
@@ -456,11 +456,11 @@ impl FromStr for Action {
         let mut tokens = s.split_ascii_whitespace();
         match tokens.next().ok_or("Empty string")? {
             "play" => Ok(Action::Play {
-                pos: usize::from_str(tokens.next().ok_or("Missing index")?)
+                card_idx: usize::from_str(tokens.next().ok_or("Missing index")?)
                     .map_err(|_| "Could not parse card index.")?,
             }),
             "discard" => Ok(Action::Discard {
-                pos: usize::from_str(tokens.next().ok_or("Missing index")?)
+                card_idx: usize::from_str(tokens.next().ok_or("Missing index")?)
                     .map_err(|_| "Could not parse card index.")?,
             }),
             "hint" => Ok(Action::Hint {
@@ -478,13 +478,13 @@ impl FromStr for Action {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ActionLog {
     Play {
-        pos: usize,
+        card_idx: usize,
         card: Card,
         know: CardKnowledge,
         success: bool,
     },
     Discard {
-        pos: usize,
+        card_idx: usize,
         card: Card,
         know: CardKnowledge,
     },
@@ -506,7 +506,7 @@ impl Display for PlayerActionLog {
         let Self { player, action } = self;
         match action {
             ActionLog::Play {
-                pos,
+                card_idx,
                 card,
                 know,
                 success,
@@ -514,18 +514,22 @@ impl Display for PlayerActionLog {
                 if *success {
                     write!(
                         f,
-                        "Player {player} played the {card} from position {pos} knowing {know}."
+                        "Player {player} played the {card} from position {card_idx} knowing {know}."
                     )
                 } else {
                     write!(
                         f,
-                        "Player {player} played the {card} from position {pos} knowing {know}, and LOST A LIFE."
+                        "Player {player} played the {card} from position {card_idx} knowing {know}, and LOST A LIFE."
                     )
                 }
             }
-            ActionLog::Discard { pos, card, know } => write!(
+            ActionLog::Discard {
+                card_idx,
+                card,
+                know,
+            } => write!(
                 f,
-                "Player {player} discarded the {card} from position {pos} knowing {know}."
+                "Player {player} discarded the {card} from position {card_idx} knowing {know}."
             ),
             ActionLog::Hint {
                 hinted_player,
@@ -537,11 +541,11 @@ impl Display for PlayerActionLog {
                     "Player {player} hinted player {hinted_player} {} {} with {hint} at positions [",
                     positions.len(), if positions.len() == 1 { "card" } else {"cards"}
                 )?;
-                for (idx, pos) in positions.iter().enumerate() {
+                for (idx, card_idx) in positions.iter().enumerate() {
                     if idx == 0 {
-                        write!(f, "{pos}")?;
+                        write!(f, "{card_idx}")?;
                     } else {
-                        write!(f, ",{pos}")?;
+                        write!(f, ",{card_idx}")?;
                     }
                 }
                 write!(f, "].")
@@ -656,9 +660,9 @@ impl Game {
 
         // Do the action
         match action {
-            Action::Play { pos } => {
+            Action::Play { card_idx } => {
                 let CardWithKnowledge(card, know) = self.hands[player]
-                    .take(pos)
+                    .take(card_idx)
                     .ok_or("Card index out of range.")?;
 
                 // Play the card if possible.
@@ -682,26 +686,30 @@ impl Game {
                 self.action_log.push(PlayerActionLog {
                     player,
                     action: ActionLog::Play {
-                        pos,
+                        card_idx,
                         card,
                         know,
                         success,
                     },
                 })
             }
-            Action::Discard { pos } => {
+            Action::Discard { card_idx } => {
                 if self.hints == MAX_HINTS {
                     return Err("Already at max hints; discarding not allowed.");
                 }
                 let CardWithKnowledge(card, know) = self.hands[player]
-                    .take(pos)
+                    .take(card_idx)
                     .ok_or("Card index out of range.")?;
                 self.discarded.push(card.clone());
                 self.hints += 1;
                 self.hands[player].draw(self.variant, &mut self.deck);
                 self.action_log.push(PlayerActionLog {
                     player,
-                    action: ActionLog::Discard { pos, card, know },
+                    action: ActionLog::Discard {
+                        card_idx,
+                        card,
+                        know,
+                    },
                 })
             }
             Action::Hint {
