@@ -1,4 +1,5 @@
 use hanabi_base::{Game, GameVariant};
+use owo_colors::OwoColorize;
 use text_io::{read, try_read};
 
 pub fn main() {
@@ -15,21 +16,21 @@ pub fn main() {
     let mut game = Game::new(players, variant);
     while let Some(next_player) = game.next_player() {
         eprintln!("{}", game.to_view(next_player));
-        eprintln!("move:");
+        eprintln!("{}", "move:".bold());
         loop {
             eprint!(" ");
             let mov: String = read!("{}\n");
             let action = match mov.parse() {
                 Ok(m) => m,
                 Err(err) => {
-                    eprintln!("move: play <index> | discard <index> | hint <player> <color|value>");
                     eprintln!("{}", err);
+                    eprintln!("move: play <index> | discard <index> | hint <player> <color|value>");
                     continue;
                 }
             };
             if let Err(err) = game.act(next_player, action) {
-                eprintln!("move: play <index> | discard <index> | hint <player> <color|value>");
                 eprintln!("{}", err);
+                eprintln!("move: play <index> | discard <index> | hint <player> <color|value>");
                 continue;
             }
             break;

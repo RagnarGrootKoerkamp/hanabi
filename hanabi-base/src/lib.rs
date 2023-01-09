@@ -547,12 +547,15 @@ impl<'a> Display for PlayerActionLogWithNames<'a> {
                 if *success {
                     write!(
                         f,
-                        "{player} played the {card} from position {card_idx} knowing {know}."
+                        "{player} {} the {card} from position {card_idx} knowing {know}.",
+                        "played".green()
                     )
                 } else {
                     write!(
                         f,
-                        "{player} played the {card} from position {card_idx} knowing {know}, and LOST A LIFE."
+                        "{player} {} the {card} from position {card_idx} knowing {know}, and {}.",
+                        "played".red(),
+                        "LOST A LIFE".red()
                     )
                 }
             }
@@ -926,7 +929,7 @@ impl Display for Game {
             writeln!(f)?;
         }
         writeln!(f)?;
-        writeln!(f, "moves:")?;
+        writeln!(f, "{}", "log:".bold())?;
         for (id, action) in self
             .action_log
             .iter()
