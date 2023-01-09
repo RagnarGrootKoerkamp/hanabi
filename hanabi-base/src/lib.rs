@@ -443,14 +443,39 @@ impl Display for Hint {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum Move {
+pub enum Action {
     Play { pos: usize },
     Discard { pos: usize },
     Hint { hinted_player: Player, hint: Hint },
 }
 
+impl FromStr for Action {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut tokens = s.split_ascii_whitespace();
+        match tokens.next().ok_or("Empty string")? {
+            "play" => Ok(Action::Play {
+                pos: usize::from_str(tokens.next().ok_or("Missing index")?)
+                    .map_err(|_| "Could not parse card index.")?,
+            }),
+            "discard" => Ok(Action::Discard {
+                pos: usize::from_str(tokens.next().ok_or("Missing index")?)
+                    .map_err(|_| "Could not parse card index.")?,
+            }),
+            "hint" => Ok(Action::Hint {
+                hinted_player: usize::from_str(tokens.next().ok_or("Missing player")?)
+                    .map_err(|_| "Could not parse player.")?,
+                hint: Hint::from_str(tokens.next().ok_or("Missing hint")?)?,
+            }),
+
+            _ => return Err("Unknown move"),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum MoveLog {
+pub enum ActionLog {
     Play {
         pos: usize,
         card: Card,
@@ -469,48 +494,17 @@ pub enum MoveLog {
     },
 }
 
-impl FromStr for Move {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut tokens = s.split_ascii_whitespace();
-        match tokens.next().ok_or("Empty string")? {
-            "play" => Ok(Move::Play {
-                pos: usize::from_str(tokens.next().ok_or("Missing index")?)
-                    .map_err(|_| "Could not parse card index.")?,
-            }),
-            "discard" => Ok(Move::Discard {
-                pos: usize::from_str(tokens.next().ok_or("Missing index")?)
-                    .map_err(|_| "Could not parse card index.")?,
-            }),
-            "hint" => Ok(Move::Hint {
-                hinted_player: usize::from_str(tokens.next().ok_or("Missing player")?)
-                    .map_err(|_| "Could not parse player.")?,
-                hint: Hint::from_str(tokens.next().ok_or("Missing hint")?)?,
-            }),
-
-            _ => return Err("Unknown move"),
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PlayerMove {
+pub struct PlayerActionLog {
     pub player: Player,
-    pub mov: Move,
+    pub action: ActionLog,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PlayerMoveLog {
-    pub player: Player,
-    pub mov: MoveLog,
-}
-
-impl Display for PlayerMoveLog {
+impl Display for PlayerActionLog {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { player, mov } = self;
-        match mov {
-            MoveLog::Play {
+        let Self { player, action } = self;
+        match action {
+            ActionLog::Play {
                 pos,
                 card,
                 know,
@@ -528,11 +522,11 @@ impl Display for PlayerMoveLog {
                     )
                 }
             }
-            MoveLog::Discard { pos, card, know } => write!(
+            ActionLog::Discard { pos, card, know } => write!(
                 f,
                 "Player {player} discarded the {card} from position {pos} knowing {know}."
             ),
-            MoveLog::Hint {
+            ActionLog::Hint {
                 hinted_player,
                 hint,
                 positions,
@@ -619,7 +613,7 @@ pub struct Game {
     played: Played,
 
     // move
-    moves_log: Vec<PlayerMoveLog>,
+    action_log: Vec<PlayerActionLog>,
 }
 
 impl Game {
@@ -648,19 +642,19 @@ impl Game {
             hands,
             discarded: vec![],
             played: Played::new(variant),
-            moves_log: vec![],
+            action_log: vec![],
         }
     }
 
-    pub fn make_move(&mut self, mov: PlayerMove) -> Result<(), &'static str> {
-        let player = self.next_player.ok_or("Game has ended.")?;
-        if mov.player != player {
+    pub fn act(&mut self, player: Player, action: Action) -> Result<(), &'static str> {
+        let next_player = self.next_player.ok_or("Game has ended.")?;
+        if player != next_player {
             return Err("Not this player's turn.");
         }
 
-        // Do the move
-        match mov.mov {
-            Move::Play { pos } => {
+        // Do the action
+        match action {
+            Action::Play { pos } => {
                 let CardWithKnowledge(card, know) = self.hands[player]
                     .take(pos)
                     .ok_or("Card index out of range.")?;
@@ -683,9 +677,9 @@ impl Game {
                 };
 
                 self.hands[player].draw(self.variant, &mut self.deck);
-                self.moves_log.push(PlayerMoveLog {
+                self.action_log.push(PlayerActionLog {
                     player,
-                    mov: MoveLog::Play {
+                    action: ActionLog::Play {
                         pos,
                         card,
                         know,
@@ -693,7 +687,7 @@ impl Game {
                     },
                 })
             }
-            Move::Discard { pos } => {
+            Action::Discard { pos } => {
                 if self.hints == MAX_HINTS {
                     return Err("Already at max hints; discarding not allowed.");
                 }
@@ -703,12 +697,12 @@ impl Game {
                 self.discarded.push(card.clone());
                 self.hints += 1;
                 self.hands[player].draw(self.variant, &mut self.deck);
-                self.moves_log.push(PlayerMoveLog {
+                self.action_log.push(PlayerActionLog {
                     player,
-                    mov: MoveLog::Discard { pos, card, know },
+                    action: ActionLog::Discard { pos, card, know },
                 })
             }
-            Move::Hint {
+            Action::Hint {
                 hinted_player,
                 hint,
             } => {
@@ -723,9 +717,9 @@ impl Game {
                 }
                 self.hints -= 1;
                 let positions = self.hands[hinted_player].hint(hint.clone())?;
-                self.moves_log.push(PlayerMoveLog {
+                self.action_log.push(PlayerActionLog {
                     player,
-                    mov: MoveLog::Hint {
+                    action: ActionLog::Hint {
                         hinted_player,
                         hint,
                         positions,
@@ -818,7 +812,7 @@ impl Display for Game {
             self.lives.style(lives_style).bold(),
             self.deck.len().style(deck_style).bold(),
             self.played.score().bold(),
-            self.moves_log.len().bold(),
+            self.action_log.len().bold(),
         )?;
 
         writeln!(f)?;
@@ -880,14 +874,14 @@ impl Display for Game {
         }
         writeln!(f)?;
         writeln!(f, "moves:")?;
-        for (id, mov) in self
-            .moves_log
+        for (id, action) in self
+            .action_log
             .iter()
             .enumerate()
             .rev()
             .take(self.num_players)
         {
-            writeln!(f, " {id:2}: {mov}")?;
+            writeln!(f, " {id:2}: {action}")?;
         }
         Ok(())
     }

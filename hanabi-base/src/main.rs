@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use hanabi_base::{Game, GameVariant, Move, PlayerMove};
+use hanabi_base::{Action, Game, GameVariant, Move};
 use text_io::read;
 
 pub fn main() {
@@ -17,7 +17,7 @@ pub fn main() {
         loop {
             eprint!(" ");
             let mov: String = read!("{}\n");
-            let mov = match Move::from_str(&mov) {
+            let action = match Action::from_str(&mov) {
                 Ok(m) => m,
                 Err(err) => {
                     eprintln!("move: play <index> | discard <index> | hint <player> <color|value>");
@@ -25,10 +25,7 @@ pub fn main() {
                     continue;
                 }
             };
-            if let Err(err) = game.make_move(PlayerMove {
-                player: next_player,
-                mov,
-            }) {
+            if let Err(err) = game.act(next_player, action) {
                 eprintln!("move: play <index> | discard <index> | hint <player> <color|value>");
                 eprintln!("{}", err);
                 continue;
