@@ -417,10 +417,15 @@ pub type Player = usize;
 pub struct CardIdx(usize);
 
 impl FromStr for CardIdx {
-    type Err = <usize as FromStr>::Err;
+    type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(CardIdx(s.parse()?))
+        let idx = s.parse().map_err(|_| "Failed to parse card index.")?;
+        if idx == 0 {
+            Err("Index must not be 0.")
+        } else {
+            Ok(CardIdx(idx))
+        }
     }
 }
 
@@ -474,18 +479,10 @@ impl FromStr for Action {
         let mut tokens = s.split_ascii_whitespace();
         match tokens.next().ok_or("Empty string")? {
             "play" => Ok(Action::Play {
-                card_idx: tokens
-                    .next()
-                    .ok_or("Missing index")?
-                    .parse()
-                    .map_err(|_| "Could not parse card index.")?,
+                card_idx: tokens.next().ok_or("Missing index")?.parse()?,
             }),
             "discard" => Ok(Action::Discard {
-                card_idx: tokens
-                    .next()
-                    .ok_or("Missing index")?
-                    .parse()
-                    .map_err(|_| "Could not parse card index.")?,
+                card_idx: tokens.next().ok_or("Missing index")?.parse()?,
             }),
             "hint" => Ok(Action::Hint {
                 hinted_player: tokens
@@ -528,9 +525,18 @@ pub struct PlayerActionLog {
     pub action: ActionLog,
 }
 
-impl Display for PlayerActionLog {
+pub struct PlayerActionLogWithNames<'a> {
+    pub action: &'a PlayerActionLog,
+    pub players: &'a Vec<String>,
+}
+
+impl<'a> Display for PlayerActionLogWithNames<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { player, action } = self;
+        let Self {
+            action: PlayerActionLog { player, action },
+            players: names,
+        } = self;
+        let player = &names[*player];
         match action {
             ActionLog::Play {
                 card_idx,
@@ -541,12 +547,12 @@ impl Display for PlayerActionLog {
                 if *success {
                     write!(
                         f,
-                        "Player {player} played the {card} from position {card_idx} knowing {know}."
+                        "{player} played the {card} from position {card_idx} knowing {know}."
                     )
                 } else {
                     write!(
                         f,
-                        "Player {player} played the {card} from position {card_idx} knowing {know}, and LOST A LIFE."
+                        "{player} played the {card} from position {card_idx} knowing {know}, and LOST A LIFE."
                     )
                 }
             }
@@ -556,17 +562,23 @@ impl Display for PlayerActionLog {
                 know,
             } => write!(
                 f,
-                "Player {player} discarded the {card} from position {card_idx} knowing {know}."
+                "{player} discarded the {card} from position {card_idx} knowing {know}."
             ),
             ActionLog::Hint {
                 hinted_player,
                 hint,
                 card_indices,
             } => {
+                let hinted_player = &names[*hinted_player];
                 write!(
                     f,
-                    "Player {player} hinted player {hinted_player} {} {} with {hint} at positions [",
-                    card_indices.len(), if card_indices.len() == 1 { "card" } else {"cards"}
+                    "{player} hinted {hinted_player} {} {} with {hint} at positions [",
+                    card_indices.len(),
+                    if card_indices.len() == 1 {
+                        "card"
+                    } else {
+                        "cards"
+                    }
                 )?;
                 for (idx, card_idx) in card_indices.iter().enumerate() {
                     if idx == 0 {
@@ -921,8 +933,17 @@ impl Display for Game {
             .enumerate()
             .rev()
             .take(self.players.len())
+            .rev()
         {
-            writeln!(f, " {id:2}: {action}")?;
+            writeln!(
+                f,
+                " {:2}: {}",
+                id + 1,
+                PlayerActionLogWithNames {
+                    action,
+                    players: &self.players
+                }
+            )?;
         }
         Ok(())
     }
