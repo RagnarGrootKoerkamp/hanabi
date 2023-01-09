@@ -466,25 +466,25 @@ impl Display for Hint {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum Action {
+pub enum Move {
     Play { card_idx: CardIdx },
     Discard { card_idx: CardIdx },
     Hint { hinted_player: Player, hint: Hint },
 }
 
-impl FromStr for Action {
+impl FromStr for Move {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut tokens = s.split_ascii_whitespace();
         match tokens.next().ok_or("Empty string")? {
-            "play" => Ok(Action::Play {
+            "play" => Ok(Move::Play {
                 card_idx: tokens.next().ok_or("Missing index")?.parse()?,
             }),
-            "discard" => Ok(Action::Discard {
+            "discard" => Ok(Move::Discard {
                 card_idx: tokens.next().ok_or("Missing index")?.parse()?,
             }),
-            "hint" => Ok(Action::Hint {
+            "hint" => Ok(Move::Hint {
                 hinted_player: tokens
                     .next()
                     .ok_or("Missing player")?
@@ -500,7 +500,7 @@ impl FromStr for Action {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum ActionLog {
+pub enum MoveLog {
     Play {
         card_idx: CardIdx,
         card: Card,
@@ -520,25 +520,25 @@ pub enum ActionLog {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PlayerActionLog {
+pub struct PlayerMoveLog {
     pub player: Player,
-    pub action: ActionLog,
+    pub mov: MoveLog,
 }
 
-pub struct PlayerActionLogWithNames<'a> {
-    pub action: &'a PlayerActionLog,
+pub struct PlayerMoveLogWithNames<'a> {
+    pub mov: &'a PlayerMoveLog,
     pub players: &'a Vec<String>,
 }
 
-impl<'a> Display for PlayerActionLogWithNames<'a> {
+impl<'a> Display for PlayerMoveLogWithNames<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let Self {
-            action: PlayerActionLog { player, action },
+            mov: PlayerMoveLog { player, mov },
             players: names,
         } = self;
         let player = &names[*player];
-        match action {
-            ActionLog::Play {
+        match mov {
+            MoveLog::Play {
                 card_idx,
                 card,
                 know,
@@ -559,7 +559,7 @@ impl<'a> Display for PlayerActionLogWithNames<'a> {
                     )
                 }
             }
-            ActionLog::Discard {
+            MoveLog::Discard {
                 card_idx,
                 card,
                 know,
@@ -567,7 +567,7 @@ impl<'a> Display for PlayerActionLogWithNames<'a> {
                 f,
                 "{player} discarded the {card} from position {card_idx} knowing {know}."
             ),
-            ActionLog::Hint {
+            MoveLog::Hint {
                 hinted_player,
                 hint,
                 card_indices,
@@ -660,7 +660,7 @@ pub struct Game {
     played: Played,
 
     // move
-    action_log: Vec<PlayerActionLog>,
+    move_log: Vec<PlayerMoveLog>,
 }
 
 impl Game {
@@ -690,19 +690,19 @@ impl Game {
             hands,
             discarded: vec![],
             played: Played::new(variant),
-            action_log: vec![],
+            move_log: vec![],
         }
     }
 
-    pub fn act(&mut self, player: Player, action: Action) -> Result<(), &'static str> {
+    pub fn make_move(&mut self, player: Player, mov: Move) -> Result<(), &'static str> {
         let next_player = self.next_player.ok_or("Game has ended.")?;
         if player != next_player {
             return Err("Not this player's turn.");
         }
 
-        // Do the action
-        match action {
-            Action::Play { card_idx } => {
+        // Do the mov
+        match mov {
+            Move::Play { card_idx } => {
                 let CardWithKnowledge(card, know) = self.hands[player]
                     .take(card_idx)
                     .ok_or("Card index out of range.")?;
@@ -725,9 +725,9 @@ impl Game {
                 };
 
                 self.hands[player].draw(self.variant, &mut self.deck);
-                self.action_log.push(PlayerActionLog {
+                self.move_log.push(PlayerMoveLog {
                     player,
-                    action: ActionLog::Play {
+                    mov: MoveLog::Play {
                         card_idx,
                         card,
                         know,
@@ -735,7 +735,7 @@ impl Game {
                     },
                 })
             }
-            Action::Discard { card_idx } => {
+            Move::Discard { card_idx } => {
                 if self.hints == MAX_HINTS {
                     return Err("Already at max hints; discarding not allowed.");
                 }
@@ -745,16 +745,16 @@ impl Game {
                 self.discarded.push(card.clone());
                 self.hints += 1;
                 self.hands[player].draw(self.variant, &mut self.deck);
-                self.action_log.push(PlayerActionLog {
+                self.move_log.push(PlayerMoveLog {
                     player,
-                    action: ActionLog::Discard {
+                    mov: MoveLog::Discard {
                         card_idx,
                         card,
                         know,
                     },
                 })
             }
-            Action::Hint {
+            Move::Hint {
                 hinted_player,
                 hint,
             } => {
@@ -769,9 +769,9 @@ impl Game {
                 }
                 self.hints -= 1;
                 let card_indices = self.hands[hinted_player].hint(hint.clone())?;
-                self.action_log.push(PlayerActionLog {
+                self.move_log.push(PlayerMoveLog {
                     player,
-                    action: ActionLog::Hint {
+                    mov: MoveLog::Hint {
                         hinted_player,
                         hint,
                         card_indices,
@@ -864,7 +864,7 @@ impl Display for Game {
             self.lives.style(lives_style).bold(),
             self.deck.len().style(deck_style).bold(),
             self.played.score().bold(),
-            self.action_log.len().bold(),
+            self.move_log.len().bold(),
         )?;
 
         writeln!(f)?;
@@ -930,8 +930,8 @@ impl Display for Game {
         }
         writeln!(f)?;
         writeln!(f, "{}", "log:".bold())?;
-        for (id, action) in self
-            .action_log
+        for (id, mov) in self
+            .move_log
             .iter()
             .enumerate()
             .rev()
@@ -942,8 +942,8 @@ impl Display for Game {
                 f,
                 " {:2}: {}",
                 id + 1,
-                PlayerActionLogWithNames {
-                    action,
+                PlayerMoveLogWithNames {
+                    mov,
                     players: &self.players
                 }
             )?;

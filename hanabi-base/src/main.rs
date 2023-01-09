@@ -21,7 +21,7 @@ pub fn main() {
             eprint!(" ");
             let mov: String = read!("{}\n");
             let err = match mov.parse() {
-                Ok(action) => match game.act(next_player, action) {
+                Ok(mov) => match game.make_move(next_player, mov) {
                     Ok(()) => break,
                     Err(err) => err,
                 },
