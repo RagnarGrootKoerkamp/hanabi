@@ -20,20 +20,18 @@ pub fn main() {
         loop {
             eprint!(" ");
             let mov: String = read!("{}\n");
-            let action = match mov.parse() {
-                Ok(m) => m,
-                Err(err) => {
-                    eprintln!("{}", err);
-                    eprintln!("move: play <index> | discard <index> | hint <player> <color|value>");
-                    continue;
-                }
+            let err = match mov.parse() {
+                Ok(action) => match game.act(next_player, action) {
+                    Ok(()) => break,
+                    Err(err) => err,
+                },
+                Err(err) => err,
             };
-            if let Err(err) = game.act(next_player, action) {
-                eprintln!("{}", err);
-                eprintln!("move: play <index> | discard <index> | hint <player> <color|value>");
-                continue;
-            }
-            break;
+            eprintln!("{}", err);
+            eprintln!(
+                "{} play <index> | discard <index> | hint <player> <color|value>",
+                "move:".bold()
+            );
         }
     }
 
