@@ -1,4 +1,4 @@
-use super::*;
+use crate::types::*;
 use futures_channel::mpsc::{unbounded, UnboundedSender};
 use futures_util::{future, pin_mut, stream::TryStreamExt, StreamExt};
 use hanabi_base::GameT;
@@ -116,7 +116,7 @@ impl<Game: GameT> ServerState<Game> {
             } => {
                 let roomid = RoomId(self.rooms.len());
                 self.rooms.push((
-                    crate::Room {
+                    crate::types::Room {
                         roomid,
                         settings,
                         players: vec![userid.clone()],
