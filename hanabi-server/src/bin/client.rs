@@ -1,6 +1,5 @@
 #[tokio::main]
 async fn main() {
-    let address = "ws://127.0.0.1:9284";
-    //let address = "ws://crew.ragnargrootkoerkamp.nl/websocket/";
-    turnbased_game_server::start_client::<hanabi::Game>(address).await;
+    let args = hanabi_server::Args::parse();
+    turnbased_game_server::start_client::<hanabi::Game>(args.client_address()).await;
 }
