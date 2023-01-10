@@ -1,0 +1,12 @@
+[package]
+name = "hanabi-server"
+version = "0.1.0"
+edition = "2021"
+default-run = "server"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hanabi = { version = "0.1.0", path = "../hanabi" }
+tokio = { version = "1.24.1", features = [] }
+turnbased-game-server = { version = "0.1.0", path = "../turnbased-game-server" }

@@ -166,7 +166,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hanabi-base"
+name = "hanabi"
 version = "0.1.0"
 dependencies = [
  "owo-colors",
@@ -175,6 +175,16 @@ dependencies = [
  "strum",
  "strum_macros",
  "text_io",
+ "turnbased-game-server",
+]
+
+[[package]]
+name = "hanabi-server"
+version = "0.1.0"
+dependencies = [
+ "hanabi",
+ "tokio",
+ "turnbased-game-server",
 ]
 
 [[package]]
@@ -616,7 +626,6 @@ version = "0.1.0"
 dependencies = [
  "futures-channel",
  "futures-util",
- "hanabi-base",
  "itertools",
  "serde",
  "serde_json",
