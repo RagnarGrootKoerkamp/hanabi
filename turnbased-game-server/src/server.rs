@@ -32,7 +32,7 @@ struct Client {
     roomid: Option<RoomId>,
 }
 
-pub struct ServerState<Game: GameT> {
+struct ServerState<Game: GameT> {
     /// All users in the server.
     users: HashMap<UserId, User>,
     /// All rooms in the server.
@@ -42,7 +42,7 @@ pub struct ServerState<Game: GameT> {
 }
 
 #[derive(Clone)]
-pub struct Server<Game: GameT> {
+struct Server<Game: GameT> {
     state: Arc<Mutex<ServerState<Game>>>,
 }
 
@@ -260,7 +260,7 @@ impl<Game: GameT> ServerState<Game> {
 }
 
 impl<Game: GameT> Server<Game> {
-    pub async fn start(address: &str) {
+    async fn start(address: &str) {
         let server = Server::<hanabi_base::Game>::new();
         let listener = TcpListener::bind(&address).await.unwrap();
         while let Ok((stream, clientid)) = listener.accept().await {
@@ -323,4 +323,8 @@ impl<Game: GameT> Server<Game> {
             server.client(clientid).sink.send(response);
         }
     }
+}
+
+pub async fn start_server<Game: GameT>(address: &str) {
+    Server::<Game>::start(address).await;
 }
