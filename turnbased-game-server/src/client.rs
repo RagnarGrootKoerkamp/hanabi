@@ -31,9 +31,6 @@ pub async fn start_client<Game: GameT>(address: &str) {
 
     pin_mut!(stdin_to_ws, ws_to_stdout);
     future::select(stdin_to_ws, ws_to_stdout).await;
-
-    // This is needed to kill the hanging stdin task.
-    std::process::exit(0);
 }
 
 async fn read_user_input<Game: GameT>(tx: futures_channel::mpsc::UnboundedSender<Message>) {
