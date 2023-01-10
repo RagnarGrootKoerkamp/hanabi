@@ -91,14 +91,6 @@ impl<Game: GameT> ServerState<Game> {
                 self.users.insert(login_userid, User { sockets: vec![] });
                 return Some(self.room_list());
             }
-            Action::Logout => {
-                self.logout(clientid);
-                return Some(NotLoggedIn);
-            }
-            Action::LeaveRoom => {
-                self.leave_room(clientid);
-                return Some(self.room_list());
-            }
             _ => {}
         };
 
@@ -109,6 +101,14 @@ impl<Game: GameT> ServerState<Game> {
         };
 
         match action {
+            Action::Logout => {
+                self.logout(clientid);
+                return Some(NotLoggedIn);
+            }
+            Action::LeaveRoom => {
+                self.leave_room(clientid);
+                return Some(self.room_list());
+            }
             Action::NewRoom {
                 min_players,
                 max_players,
