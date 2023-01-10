@@ -20,4 +20,5 @@ pub trait GameT:
     fn new(player_names: Vec<String>, settings: Self::Settings) -> Self;
     fn make_move(&mut self, player: &String, mov: Self::Move) -> Result<(), &'static str>;
     fn to_view(&self, player: &String) -> Self;
+    fn move_help() -> &'static str;
 }

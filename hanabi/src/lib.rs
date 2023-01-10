@@ -459,8 +459,8 @@ impl FromStr for Hint {
 impl Display for Hint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValueHint(v) => write!(f, "value {v}"),
-            ColorHint(c) => write!(f, "color {}", c.style(c.to_style())),
+            ValueHint(v) => write!(f, "{}", v.bold()),
+            ColorHint(c) => write!(f, "{}", c.style(c.to_style()).bold()),
         }
     }
 }
@@ -579,13 +579,9 @@ impl<'a> Display for PlayerMoveLogWithNames<'a> {
                 let hinted_player = &names[*hinted_player];
                 write!(
                     f,
-                    "{player} hinted {hinted_player} {} {} with {hint} at positions [",
-                    card_indices.len(),
-                    if card_indices.len() == 1 {
-                        "card"
-                    } else {
-                        "cards"
-                    }
+                    "{} hinted {} {hint} at pos [",
+                    player.bold(),
+                    hinted_player.bold(),
                 )?;
                 for (idx, card_idx) in card_indices.iter().enumerate() {
                     if idx == 0 {
@@ -977,5 +973,9 @@ impl turnbased_game_server::GameT for Game {
             Some(player) => self.to_view(player),
             None => self.clone(),
         }
+    }
+
+    fn move_help() -> &'static str {
+        "play <index> | discard <index> | hint <playerid> <color|value>"
     }
 }
