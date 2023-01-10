@@ -960,7 +960,7 @@ impl Display for Game {
     }
 }
 
-pub trait GameT: Sized + Debug + Display + Serialize + DeserializeOwned + Clone {
+pub trait GameT: Sized + Debug + Display + Serialize + DeserializeOwned + Clone + 'static {
     type Settings: Debug + Display + Serialize + DeserializeOwned + Clone + FromStr;
     type Move: Debug + Serialize + DeserializeOwned + Clone + FromStr<Err = &'static str>;
     fn new(player_names: Vec<String>, settings: Self::Settings) -> Self;
