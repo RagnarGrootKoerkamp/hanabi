@@ -261,6 +261,7 @@ impl<Game: GameT> ServerState<Game> {
 
 impl<Game: GameT> Server<Game> {
     async fn start(address: &str) {
+        eprintln!("Listen on {address}");
         let server = Server::<Game>::new();
         let listener = TcpListener::bind(&address).await.unwrap();
         while let Ok((stream, clientid)) = listener.accept().await {
@@ -282,7 +283,7 @@ impl<Game: GameT> Server<Game> {
         let ws_stream = tokio_tungstenite::accept_async(raw_stream)
             .await
             .expect("Error during the websocket handshake occurred");
-        println!("WebSocket connection established: {}", clientid);
+        eprintln!("WebSocket connection established: {}", clientid);
 
         // Write and read part of the websocket stream.
         let (ws_outgoing, ws_incoming) = ws_stream.split();
