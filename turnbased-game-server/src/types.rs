@@ -1,4 +1,4 @@
-use hanabi_base::GameT;
+use crate::GameT;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, str::FromStr};

@@ -1,6 +1,6 @@
 use crate::types::{Action, Response};
+use crate::GameT;
 use futures_util::{future, pin_mut, StreamExt};
-use hanabi_base::GameT;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tokio_util::codec::{FramedRead, LinesCodec};
 

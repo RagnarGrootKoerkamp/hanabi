@@ -1,7 +1,7 @@
 use crate::types::*;
+use crate::GameT;
 use futures_channel::mpsc::{unbounded, UnboundedSender};
 use futures_util::{future, pin_mut, stream::TryStreamExt, StreamExt};
-use hanabi_base::GameT;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
@@ -261,7 +261,7 @@ impl<Game: GameT> ServerState<Game> {
 
 impl<Game: GameT> Server<Game> {
     async fn start(address: &str) {
-        let server = Server::<hanabi_base::Game>::new();
+        let server = Server::<Game>::new();
         let listener = TcpListener::bind(&address).await.unwrap();
         while let Ok((stream, clientid)) = listener.accept().await {
             tokio::spawn(server.clone().handle_connection(stream, clientid));

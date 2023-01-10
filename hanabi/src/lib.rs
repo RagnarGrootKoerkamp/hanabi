@@ -6,7 +6,7 @@ use std::{
 
 use owo_colors::{OwoColorize, Style};
 use rand::{seq::SliceRandom, thread_rng, Rng};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 const MAX_HINTS: usize = 8;
 const MAX_LIVES: usize = 3;
@@ -960,15 +960,7 @@ impl Display for Game {
     }
 }
 
-pub trait GameT: Sized + Debug + Display + Serialize + DeserializeOwned + Clone + 'static {
-    type Settings: Debug + Display + Serialize + DeserializeOwned + Clone + FromStr;
-    type Move: Debug + Serialize + DeserializeOwned + Clone + FromStr<Err = &'static str>;
-    fn new(player_names: Vec<String>, settings: Self::Settings) -> Self;
-    fn make_move(&mut self, player: &String, mov: Self::Move) -> Result<(), &'static str>;
-    fn to_view(&self, player: &String) -> Self;
-}
-
-impl GameT for Game {
+impl turnbased_game_server::GameT for Game {
     type Settings = GameVariant;
     type Move = Move;
 

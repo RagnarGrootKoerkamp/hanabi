@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "hanabi-base",
+    "hanabi",
     "turnbased-game-server",
 ]
 resolver = "2"

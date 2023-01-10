@@ -1,4 +1,4 @@
-use hanabi_base::{Game, GameVariant};
+use hanabi::{Game, GameVariant};
 use owo_colors::OwoColorize;
 use text_io::{read, try_read};
 
