@@ -991,6 +991,15 @@ impl Display for Game {
                 }
             )?;
         }
+        writeln!(
+            f,
+            "{}",
+            format!(
+                "next:\n {}",
+                self.next_player.map_or("ended", |p| &self.players[p])
+            )
+            .bold()
+        )?;
         Ok(())
     }
 }
