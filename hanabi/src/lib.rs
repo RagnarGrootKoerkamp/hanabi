@@ -14,17 +14,7 @@ const MAX_LIVES: usize = 3;
 pub type Value = usize;
 const MAX_VALUE: Value = 5;
 
-#[derive(
-    Debug,
-    Serialize,
-    Deserialize,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    strum_macros::Display,
-    strum_macros::EnumString,
-)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, strum_macros::Display)]
 #[strum(ascii_case_insensitive)]
 pub enum Color {
     Blue = 0,
@@ -44,6 +34,23 @@ const COLORS: [Color; 6] = [
     Color::Multi,
 ];
 const COLORWIDTH: usize = 6 + 1;
+
+impl FromStr for Color {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "" => Err("Color must not be empty"),
+            s if "blue".starts_with(s) => Ok(Color::Blue),
+            s if "green".starts_with(s) => Ok(Color::Green),
+            s if "red".starts_with(s) => Ok(Color::Red),
+            s if "white".starts_with(s) => Ok(Color::White),
+            s if "yellow".starts_with(s) => Ok(Color::Yellow),
+            s if "multi".starts_with(s) => Ok(Color::Multi),
+            _ => Err("Unknown color"),
+        }
+    }
+}
 
 impl Color {
     fn to_style(&self) -> Style {
@@ -478,13 +485,14 @@ impl FromStr for Move {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut tokens = s.split_ascii_whitespace();
         let mov = match tokens.next().ok_or("Empty string")? {
-            "play" => Move::Play {
+            "" => return Err("Empty action"),
+            a if "play".starts_with(a) => Move::Play {
                 card_idx: tokens.next().ok_or("Missing index")?.parse()?,
             },
-            "discard" => Move::Discard {
+            a if "discard".starts_with(a) => Move::Discard {
                 card_idx: tokens.next().ok_or("Missing index")?.parse()?,
             },
-            "hint" => Move::Hint {
+            a if "hint".starts_with(a) => Move::Hint {
                 hinted_player: tokens
                     .next()
                     .ok_or("Missing player")?
