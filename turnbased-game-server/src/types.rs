@@ -162,6 +162,8 @@ impl<Game: GameT> FromStr for Action<Game> {
 #[serde(bound = "")]
 pub enum Response<Game: GameT> {
     NotLoggedIn,
+    /// Username of currently logged in user.
+    LoggedIn(UserId),
     RoomList(Vec<Room<Game>>),
     Room(Room<Game>),
     Error(String),
@@ -171,6 +173,7 @@ impl<Game: GameT> Display for Response<Game> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Response::NotLoggedIn => write!(f, "Please log in: login <username>"),
+            Response::LoggedIn(user) => write!(f, "Logged in as {user}"),
             Response::Error(err) => write!(f, "Error: {err}"),
             Response::RoomList(rooms) => {
                 writeln!(f, "Rooms:")?;

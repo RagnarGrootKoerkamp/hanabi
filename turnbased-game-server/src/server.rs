@@ -88,7 +88,11 @@ impl<Game: GameT> ServerState<Game> {
             Action::Login(login_userid) => {
                 self.logout(clientid);
                 self.clients.get_mut(&clientid).unwrap().userid = Some(login_userid.clone());
-                self.users.insert(login_userid, User { sockets: vec![] });
+                self.users
+                    .insert(login_userid.clone(), User { sockets: vec![] });
+                self.client(clientid)
+                    .sink
+                    .send(Response::<Game>::LoggedIn(login_userid));
                 return Some(self.room_list());
             }
             _ => {}

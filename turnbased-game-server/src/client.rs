@@ -1,8 +1,15 @@
-use crate::types::{Action, Response};
+use std::sync::Mutex;
+
+use crate::types::{Action, Response, UserId};
 use crate::GameT;
 use futures_util::{future, pin_mut, StreamExt};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tokio_util::codec::{FramedRead, LinesCodec};
+
+#[derive(Default)]
+struct ClientState {
+    userid: Option<UserId>,
+}
 
 pub async fn start_client<Game: GameT>(address: &str) {
     let (stdin_sink, stdin_stream) = futures_channel::mpsc::unbounded();
@@ -13,6 +20,8 @@ pub async fn start_client<Game: GameT>(address: &str) {
 
     let (outgoing, incoming) = ws_stream.split();
     let stdin_to_ws = stdin_stream.map(Ok).forward(outgoing);
+
+    let state: Mutex<ClientState> = Mutex::new(ClientState::default());
 
     let ws_to_stdout = incoming.for_each(|msg| async {
         let msg = msg
@@ -27,6 +36,9 @@ pub async fn start_client<Game: GameT>(address: &str) {
         }
         let text = msg.into_data();
         let response: Response<Game> = serde_json::from_slice(&text).unwrap();
+        if let Response::LoggedIn(userid) = &response {
+            state.lock().unwrap().userid = Some(userid.clone());
+        }
         eprint!("{response}");
         eprint!("action:\n ");
     });
