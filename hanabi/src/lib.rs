@@ -784,17 +784,18 @@ impl Game {
             }
         }
 
-        // This player will have the last turn?
-        if self.deck.is_empty() && self.last_player.is_none() {
-            self.last_player = Some(player);
-        }
-
         // End the game?
         self.next_player = if self.lives == 0 || self.last_player == Some(player) {
             None
         } else {
             Some((player + 1) % self.players.len())
         };
+
+        // This player will have the last turn?
+        if self.deck.is_empty() && self.last_player.is_none() {
+            self.last_player = Some(player);
+        }
+
         Ok(())
     }
 
