@@ -145,9 +145,9 @@ impl Deck {
         cards.shuffle(&mut thread_rng());
         Deck::Visible(cards)
     }
-    fn take(&mut self) -> Card {
+    fn take(&mut self) -> Option<Card> {
         let Deck::Visible(cards) = self else { panic!() };
-        cards.pop().unwrap()
+        cards.pop()
     }
     fn is_empty(&self) -> bool {
         match self {
@@ -333,16 +333,23 @@ pub enum Hand {
 impl Hand {
     fn new(variant: GameVariant, cards_per_player: usize, deck: &mut Deck) -> Self {
         let cards = (0..cards_per_player)
-            .map(|_| CardWithKnowledge(deck.take(), CardKnowledge::new(variant, Turn::Start)))
+            .map(|_| {
+                CardWithKnowledge(
+                    deck.take().unwrap(),
+                    CardKnowledge::new(variant, Turn::Start),
+                )
+            })
             .collect();
         Self::Visible(cards)
     }
     fn draw(&mut self, variant: GameVariant, deck: &mut Deck) {
         let Hand::Visible(cards) = self else { panic!() };
-        cards.push(CardWithKnowledge(
-            deck.take(),
-            CardKnowledge::new(variant, Turn::Start),
-        ))
+        if let Some(card) = deck.take() {
+            cards.push(CardWithKnowledge(
+                card,
+                CardKnowledge::new(variant, Turn::Start),
+            ));
+        }
     }
     fn take(&mut self, card_idx: CardIdx) -> Option<CardWithKnowledge> {
         let Hand::Visible(cards) = self else { panic!() };
