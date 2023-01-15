@@ -245,9 +245,9 @@ impl Display for CardKnowledge {
 
         let (text, style) = match (c, v) {
             (None, '?') => ("?".into(), None),
-            (None, _) => (format!("{v}"), None),
-            (Some(c), '?') => (c.to_string(), Some(c.to_style())),
-            (Some(c), _) => (format!("{c} {v}"), Some(c.to_style())),
+            (None, _) => (v.to_string(), Some(Style::new().bold())),
+            (Some(c), '?') => (c.to_string(), Some(c.to_style().bold())),
+            (Some(c), _) => (format!("{c} {v}"), Some(c.to_style().bold())),
         };
 
         if let Some(style) = style {
@@ -551,14 +551,17 @@ impl<'a> Display for PlayerMoveLogWithNames<'a> {
                 if *success {
                     write!(
                         f,
-                        "{player} {} the {card} from position {card_idx} knowing {know}.",
-                        "played".green()
+                        "{} played the {} from position {card_idx} knowing {know}.",
+                        player.bold(),
+                        card.bold(),
                     )
                 } else {
                     write!(
                         f,
-                        "{player} {} the {card} from position {card_idx} knowing {know}, and {}.",
+                        "{} {} the {} from position {card_idx} knowing {know}, and {}.",
+                        player.bold(),
                         "played".red(),
+                        card.bold(),
                         "LOST A LIFE".red()
                     )
                 }
@@ -569,7 +572,9 @@ impl<'a> Display for PlayerMoveLogWithNames<'a> {
                 know,
             } => write!(
                 f,
-                "{player} discarded the {card} from position {card_idx} knowing {know}."
+                "{} discarded the {} from position {card_idx} knowing {know}.",
+                player.bold(),
+                card.bold(),
             ),
             MoveLog::Hint {
                 hinted_player,
@@ -818,18 +823,18 @@ impl Game {
 
 /// Print the current game state to stderr.
 ///
+/// log:
+///  <log>
+///
 /// turn: 0 | hints: 8 | lives: 3
 ///
-/// discarded:
-/// red    0 0 0 0 0
-/// green  0 0 0 0 0
-/// blue   0 0 0 0 0
-/// yellow 0 0 0 0 0
-/// green  0 0 0 0 0
-/// multi  0 0 0 0 0
-///
-/// played:
-/// red 0 | green 1 | blue 2 | green 3 | yellow 4 | multi 5
+///   played | discarded:
+/// red    0 | 0 0 0 0 0
+/// green  0 | 0 0 0 0 0
+/// blue   0 | 0 0 0 0 0
+/// yellow 0 | 0 0 0 0 0
+/// green  0 | 0 0 0 0 0
+/// multi  0 | 0 0 0 0 0
 ///
 ///  p 1        2        3        4        5
 /// *1 green 1
@@ -889,7 +894,7 @@ impl Display for Game {
             for v in 1..=MAX_VALUE {
                 let d = discarded[c as usize][v - 1];
                 let style = if v <= self.played[c] {
-                    good
+                    good.bold()
                 } else if d == 0 {
                     ok
                 } else if d == Deck::count(self.variant, c, v) {
