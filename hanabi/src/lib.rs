@@ -477,6 +477,7 @@ pub enum Move {
     Play { card_idx: CardIdx },
     Discard { card_idx: CardIdx },
     Hint { hinted_player: Player, hint: Hint },
+    HintOtherPlayer { hint: Hint },
 }
 
 impl FromStr for Move {
@@ -492,15 +493,23 @@ impl FromStr for Move {
             a if "discard".starts_with(a) => Move::Discard {
                 card_idx: tokens.next().ok_or("Missing index")?.parse()?,
             },
-            a if "hint".starts_with(a) => Move::Hint {
-                hinted_player: tokens
-                    .next()
-                    .ok_or("Missing player")?
-                    .parse::<usize>()
-                    .map_err(|_| "Could not parse player.")?
-                    - 1,
-                hint: tokens.next().ok_or("Missing hint")?.parse()?,
-            },
+            a if "hint".starts_with(a) => {
+                if tokens.clone().count() == 2 {
+                    Move::Hint {
+                        hinted_player: tokens
+                            .next()
+                            .ok_or("Missing player")?
+                            .parse::<usize>()
+                            .map_err(|_| "Could not parse player.")?
+                            - 1,
+                        hint: tokens.next().ok_or("Missing hint")?.parse()?,
+                    }
+                } else {
+                    Move::HintOtherPlayer {
+                        hint: tokens.next().ok_or("Missing hint")?.parse()?,
+                    }
+                }
+            }
 
             _ => return Err("Unknown action"),
         };
@@ -775,25 +784,14 @@ impl Game {
                 hinted_player,
                 hint,
             } => {
-                if self.hints == 0 {
-                    return Err("No hints remaining; hinting not allowed.");
+                self.hint(hinted_player, player, hint)?;
+            }
+            Move::HintOtherPlayer { hint } => {
+                if self.players.len() == 2 {
+                    self.hint((player + 1) % 2, player, hint)?;
+                } else {
+                    return Err("Specify the player to hint");
                 }
-                if hinted_player == player {
-                    return Err("Hinting yourself is not allowed.");
-                }
-                if !(0..self.players.len()).contains(&hinted_player) {
-                    return Err("Player out of range");
-                }
-                self.hints -= 1;
-                let card_indices = self.hands[hinted_player].hint(hint.clone())?;
-                self.move_log.push(PlayerMoveLog {
-                    player,
-                    mov: MoveLog::Hint {
-                        hinted_player,
-                        hint,
-                        card_indices,
-                    },
-                })
             }
         }
 
@@ -810,6 +808,33 @@ impl Game {
         }
 
         Ok(())
+    }
+
+    fn hint(
+        &mut self,
+        hinted_player: usize,
+        player: usize,
+        hint: Hint,
+    ) -> Result<(), &'static str> {
+        if self.hints == 0 {
+            return Err("No hints remaining; hinting not allowed.");
+        }
+        if hinted_player == player {
+            return Err("Hinting yourself is not allowed.");
+        }
+        if !(0..self.players.len()).contains(&hinted_player) {
+            return Err("Player out of range");
+        }
+        self.hints -= 1;
+        let card_indices = self.hands[hinted_player].hint(hint.clone())?;
+        Ok(self.move_log.push(PlayerMoveLog {
+            player,
+            mov: MoveLog::Hint {
+                hinted_player,
+                hint,
+                card_indices,
+            },
+        }))
     }
 
     /// Create a view for the given player, with secret information removed.

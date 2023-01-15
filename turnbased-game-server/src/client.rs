@@ -27,7 +27,7 @@ pub async fn start_client<Game: GameT>(address: &str) {
         }
         let text = msg.into_data();
         let response: Response<Game> = serde_json::from_slice(&text).unwrap();
-        eprintln!("{response}");
+        eprint!("{response}");
         eprint!("action:\n ");
     });
 
