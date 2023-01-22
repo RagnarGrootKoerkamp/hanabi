@@ -693,8 +693,9 @@ pub struct Game {
 }
 
 impl Game {
-    pub fn new(players: Vec<String>, variant: GameVariant) -> Self {
+    pub fn new(mut players: Vec<String>, variant: GameVariant) -> Self {
         let num_players = players.len();
+        players.shuffle(&mut rand::thread_rng());
         let start_player = thread_rng().gen_range(0..num_players);
         let cards_per_player = match num_players {
             2 | 3 => 5,
