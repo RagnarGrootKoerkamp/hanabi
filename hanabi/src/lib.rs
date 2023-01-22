@@ -908,7 +908,7 @@ impl Display for Game {
             _ => good,
         };
 
-        writeln!(
+        write!(
             f,
             "Hints: {} | Lives: {} | Deck: {} | Score: {} | Turn: {}",
             self.hints.style(hints_style).bold(),
@@ -917,6 +917,17 @@ impl Display for Game {
             self.played.score().bold(),
             self.move_log.len().bold(),
         )?;
+        if let Some(last_player) = self.last_player {
+            writeln!(
+                f,
+                " | {}",
+                format!("Last move: {}", self.players[last_player])
+                    .red()
+                    .bold()
+            )?;
+        } else {
+            writeln!(f)?;
+        }
 
         writeln!(f)?;
         writeln!(f, "    {} | {}", "played".bold(), "discarded".bold())?;
