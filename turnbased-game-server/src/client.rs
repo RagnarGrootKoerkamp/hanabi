@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use crate::types::{Action, Response, UserId};
 use crate::GameT;
 use futures_util::{future, pin_mut, StreamExt};
+use owo_colors::OwoColorize;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tokio_util::codec::{FramedRead, LinesCodec};
 
@@ -38,9 +39,11 @@ pub async fn start_client<Game: GameT>(address: &str) {
         let response: Response<Game> = serde_json::from_slice(&text).unwrap();
         if let Response::LoggedIn(userid) = &response {
             state.lock().unwrap().userid = Some(userid.clone());
+            eprint!("{response}");
+        } else {
+            eprint!("{response}");
+            eprint!("{}", "action:\n ".bold());
         }
-        eprint!("{response}");
-        eprint!("action:\n ");
     });
 
     pin_mut!(stdin_to_ws, ws_to_stdout);

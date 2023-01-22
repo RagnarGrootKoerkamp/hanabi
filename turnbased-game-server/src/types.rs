@@ -1,5 +1,6 @@
 use crate::GameT;
 use itertools::Itertools;
+use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Display, str::FromStr};
 
@@ -42,6 +43,8 @@ pub enum RoomState<Game: GameT> {
 pub struct Room<Game: GameT> {
     pub roomid: RoomId,
     pub settings: Game::Settings,
+    /// List of players in the room. Order of this list doesn't matter, and may
+    /// be different from in-game order.
     pub players: Vec<UserId>,
     pub state: RoomState<Game>,
 }
@@ -68,14 +71,15 @@ impl<Game: GameT> Display for Room<Game> {
             } => {
                 write!(
                     f,
-                    "{roomid:>5}: {status:7} {settings:<20} {min_players}-{max_players}  {}",
+                    "{} status: {status:7} settings: {settings:<10} players: {min_players}-{max_players}  {}",
+                    format!("Room {roomid}:").bold(),
                     players.join(", ")
                 )
             }
             Started(None) | Ended(None) => {
                 write!(
                     f,
-                    "{roomid:>5}: {status:7} {settings:<20}     {}",
+                    "{roomid}: status: {status:7} settings: {settings:<10}     players: {}",
                     players.join(", ")
                 )
             }
@@ -172,13 +176,17 @@ pub enum Response<Game: GameT> {
 impl<Game: GameT> Display for Response<Game> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Response::NotLoggedIn => write!(f, "Please log in: login <username>"),
-            Response::LoggedIn(user) => write!(f, "Logged in as {user}"),
-            Response::Error(err) => write!(f, "Error: {err}"),
+            Response::NotLoggedIn => writeln!(f, "Please log in: {}", "login <username>".bold()),
+            Response::LoggedIn(user) => writeln!(f, "Logged in as {user}"),
+            Response::Error(err) => writeln!(f, "Error: {}", err.bold()),
             Response::RoomList(rooms) => {
-                writeln!(f, "Rooms:")?;
-                for room in rooms {
-                    writeln!(f, " {room}")?;
+                writeln!(f, "{}", "Lobby:".bold())?;
+                if rooms.is_empty() {
+                    writeln!(f, " No active rooms")?;
+                } else {
+                    for room in rooms {
+                        writeln!(f, " {room}")?;
+                    }
                 }
                 Ok(())
             }

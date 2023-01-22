@@ -986,6 +986,7 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "itertools",
+ "owo-colors",
  "serde",
  "serde_json",
  "tokio",
