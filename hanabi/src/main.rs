@@ -1,4 +1,4 @@
-use hanabi::{Game, GameVariant};
+use hanabi::{Game, GameState, GameVariant};
 use owo_colors::OwoColorize;
 use text_io::{read, try_read};
 
@@ -14,7 +14,7 @@ pub fn main() {
         .map(|id| format!("Player{id}"))
         .collect();
     let mut game = Game::new(players, variant);
-    while let Some(next_player) = game.next_player() {
+    while let GameState::NextPlayer(next_player) = game.game_state() {
         eprintln!("{}", game.to_view(next_player));
         eprintln!("{}", "move:".bold());
         loop {

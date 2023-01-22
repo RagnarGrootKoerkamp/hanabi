@@ -650,6 +650,9 @@ impl GameVariant {
             GameVariant::Multi | GameVariant::MultiHard => 6,
         }
     }
+    pub fn max_score(&self) -> usize {
+        5 * self.num_colors()
+    }
     pub fn has_multi(&self) -> bool {
         match self {
             GameVariant::Base => false,
@@ -667,13 +670,39 @@ impl GameVariant {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Copy)]
+pub enum GameState {
+    NextPlayer(Player),
+    Won,
+    Died,
+    Ended,
+}
+
+impl GameState {
+    fn has_ended(&self) -> bool {
+        match self {
+            GameState::NextPlayer(_) => false,
+            _ => true,
+        }
+    }
+
+    fn to_string(&self, players: &Vec<String>) -> String {
+        match *self {
+            GameState::NextPlayer(player) => format!("next: {}", players[player]),
+            GameState::Won => "won".green().to_string(),
+            GameState::Died => "died".red().to_string(),
+            GameState::Ended => "ended".red().to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Game {
     // data
     players: Vec<String>,
     start_player: Player,
     /// None when the game has ended.
-    next_player: Option<Player>,
+    game_state: GameState,
     /// Set as soon as the deck is empty.
     last_player: Option<Player>,
 
@@ -710,7 +739,7 @@ impl Game {
         Self {
             players,
             start_player,
-            next_player: Some(start_player),
+            game_state: GameState::NextPlayer(start_player),
             last_player: None,
             cards_per_player,
             hints: MAX_HINTS,
@@ -729,12 +758,14 @@ impl Game {
     }
 
     pub fn make_move(&mut self, player: Player, mov: Move) -> Result<(), &'static str> {
-        let next_player = self.next_player.ok_or("Game has ended.")?;
+        let GameState::NextPlayer(next_player) = self.game_state else {
+            return Err("Game has ended.")?;
+        };
         if player != next_player {
             return Err("Not this player's turn.");
         }
 
-        // Do the mov
+        // Do the move.
         match mov {
             Move::Play { card_idx } => {
                 let CardWithKnowledge(card, know) = self.hands[player]
@@ -804,10 +835,14 @@ impl Game {
         }
 
         // End the game?
-        self.next_player = if self.lives == 0 || self.last_player == Some(player) {
-            None
+        self.game_state = if self.lives == 0 {
+            GameState::Died
+        } else if self.played.score() == self.variant.max_score() {
+            GameState::Won
+        } else if self.last_player == Some(player) {
+            GameState::Ended
         } else {
-            Some((player + 1) % self.players.len())
+            GameState::NextPlayer((player + 1) % self.players.len())
         };
 
         // This player will have the last turn?
@@ -853,12 +888,12 @@ impl Game {
         view
     }
 
-    pub fn next_player(&self) -> Option<usize> {
-        self.next_player
+    pub fn game_state(&self) -> GameState {
+        self.game_state
     }
 
     pub fn has_ended(&self) -> bool {
-        self.next_player.is_none()
+        self.game_state.has_ended()
     }
 }
 
@@ -966,7 +1001,7 @@ impl Display for Game {
         }
         writeln!(f)?;
         for (pid, p) in self.players.iter().enumerate() {
-            let this_turn_style = if self.next_player == Some(pid) {
+            let this_turn_style = if self.game_state == GameState::NextPlayer(pid) {
                 Style::new().bold()
             } else {
                 Style::new()
@@ -1010,15 +1045,7 @@ impl Display for Game {
                 }
             )?;
         }
-        writeln!(
-            f,
-            "{}",
-            format!(
-                "next:\n {}",
-                self.next_player.map_or("ended", |p| &self.players[p])
-            )
-            .bold()
-        )?;
+        writeln!(f, "{}", self.game_state.to_string(&self.players).bold())?;
         Ok(())
     }
 }
