@@ -1070,6 +1070,6 @@ impl turnbased_game_server::GameT for Game {
     }
 
     fn move_help() -> &'static str {
-        "play <index> | discard <index> | hint <playerid> <color|value>"
+        "p[lay] <index> | d[iscard] <index> | h[int] <playerid> <c[olor]|value>"
     }
 }

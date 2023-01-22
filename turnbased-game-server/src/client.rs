@@ -67,7 +67,7 @@ async fn read_user_input<Game: GameT>(tx: futures_channel::mpsc::UnboundedSender
                 Err(err) => {
                     eprintln!("Error: {err}");
                     eprintln!("Possible actions:");
-                    eprintln!(" action (lobby): login <username> | logout | enter <roomid> | new <min> <max> <settings>");
+                    eprintln!(" action (lobby): login <username> | logout | new <min> <max> <settings> | join <roomid> | watch <roomid>");
                     eprintln!(" action (game):  join | leave | start");
                     eprintln!(" move   (game):  {}", Game::move_help());
                     eprint!(" ");

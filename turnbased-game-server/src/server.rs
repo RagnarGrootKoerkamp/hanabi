@@ -99,7 +99,8 @@ impl<Game: GameT> ServerState<Game> {
         };
 
         // Remaining actions require a user to be logged in.
-        let &Client { userid, roomid, .. } = &self.client(clientid);
+        let Client { userid, roomid, .. } = self.client(clientid);
+        let mut roomid = *roomid;
         let Some(userid) = userid.clone() else {
             return Some(NotLoggedIn);
         };
@@ -136,19 +137,23 @@ impl<Game: GameT> ServerState<Game> {
                 return Some(Room(self.room(roomid).to_view(&userid)));
             }
             Action::WatchRoom(roomid) => {
+                if self.rooms.get(roomid.0).is_none() {
+                    return Some(Error("Invalid room ID".into()));
+                }
                 self.watch_room(clientid, roomid);
                 return Some(Room(self.room(roomid).to_view(&userid)));
             }
-            _ => {}
-        }
-
-        // Remaining actions act on a room.
-        let Some(roomid) = *roomid else {
-            return None;
-        };
-
-        match action {
-            Action::JoinRoom => {
+            Action::JoinRoom(joined_roomid) => {
+                eprintln!("JoinRoom {joined_roomid:?}");
+                roomid = match (joined_roomid, roomid) {
+                    (Some(roomid), _) | (_, Some(roomid)) => Some(roomid),
+                    _ => return Some(Error("Pass a room ID".into())),
+                };
+                let roomid = roomid.unwrap();
+                if self.rooms.get(roomid.0).is_none() {
+                    return Some(Error("Invalid room ID".into()));
+                }
+                self.watch_room(clientid, roomid);
                 let room = self.room_mut(roomid);
                 let RoomState::WaitingForPlayers { max_players, .. } = room.state else {
                     return Some(Error("Room is not waiting for players".into()));
@@ -165,13 +170,20 @@ impl<Game: GameT> ServerState<Game> {
                         return Some(Error(err.into()));
                     }
                 }
-                roomid
             }
+            _ => {}
+        }
+
+        // Remaining actions act on a room.
+        let Some(roomid) = roomid else {
+            return Some(Error("First join a room".into()));
+        };
+
+        match action {
             Action::StartGame => {
                 if let Err(err) = self.start_game(&userid, roomid) {
                     return Some(Error(err.into()));
                 }
-                roomid
             }
             Action::MakeMove(mov) => {
                 let room = self.room_mut(roomid);
@@ -181,10 +193,8 @@ impl<Game: GameT> ServerState<Game> {
                 if let Err(err) = room.state.make_move(&userid, mov) {
                     return Some(Error(err.into()));
                 }
-
-                roomid
             }
-            _ => unreachable!(),
+            _ => {}
         };
 
         let room = self.room(roomid);

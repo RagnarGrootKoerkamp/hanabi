@@ -91,7 +91,7 @@ impl<Game: GameT> Display for Room<Game> {
 }
 
 /// An action that can be sent over an incoming websocket.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum Action<Game: GameT> {
     /// Which user is using the socket.
     Login(UserId),
@@ -110,8 +110,8 @@ pub enum Action<Game: GameT> {
         max_players: usize,
         settings: Game::Settings,
     },
-    /// Join the current room if it is waiting for players.
-    JoinRoom,
+    /// Join the given (or current) room if it is waiting for players.
+    JoinRoom(Option<RoomId>),
 
     /// Start the game in the current room.
     StartGame,
@@ -129,7 +129,7 @@ impl<Game: GameT> FromStr for Action<Game> {
         let mov = match tokens.next().ok_or("Empty string")? {
             "login" => Login(tokens.next().ok_or("missing user id")?.into()),
             "logout" => Logout,
-            "enter" => WatchRoom(tokens.next().ok_or("missing room id")?.parse()?),
+            "watch" => WatchRoom(tokens.next().ok_or("missing room id")?.parse()?),
             "leave" => LeaveRoom,
             "new" => NewRoom {
                 min_players: tokens
@@ -151,7 +151,7 @@ impl<Game: GameT> FromStr for Action<Game> {
                     s
                 },
             },
-            "join" => JoinRoom,
+            "join" => JoinRoom(tokens.next().map(|id| id.parse()).transpose()?),
             "start" => StartGame,
             _ => MakeMove(s.parse()?),
         };
