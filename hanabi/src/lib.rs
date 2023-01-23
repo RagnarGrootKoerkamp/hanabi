@@ -293,9 +293,15 @@ impl Display for CardKnowledge {
         //
         // else:
         // ?
+        //
+        // when multi is not `possible`: bold
 
-        // TODO: Handling of multi.
-        let c = self.cs.find_eq(Known);
+        // Known color?
+        let mut c = self.cs.find_eq(Known);
+        // Otherwise, multi-candidate?
+        if c.is_none() && self.cs.count_eq(Possible) == 2 {
+            c = self.cs.find_eq(Possible);
+        }
 
         // v: 1/2/3/4/5 or ?
         let v = self.vs.iter().position(|&k| k == Known);
@@ -304,20 +310,19 @@ impl Display for CardKnowledge {
             None => b'?',
         } as char;
 
-        let (text, style) = match (c, v) {
-            (None, '?') => ("?".into(), None),
-            (None, _) => (v.to_string(), Some(Style::new().bold())),
-            (Some(c), '?') => (c.to_string(), Some(c.to_style().bold())),
-            (Some(c), _) => (format!("{c} {v}"), Some(c.to_style().bold())),
+        let (text, mut style) = match (c, v) {
+            (None, '?') => ("?".into(), Style::new()),
+            (None, _) => (v.to_string(), Style::new()),
+            (Some(c), '?') => (c.to_string(), c.to_style()),
+            (Some(c), _) => (format!("{c} {v}"), c.to_style()),
         };
+        if self.cs[Color::Multi] != KnowledgeState::Possible {
+            style = style.bold();
+        }
 
-        if let Some(style) = style {
-            style.fmt_prefix(f)?;
-        }
+        style.fmt_prefix(f)?;
         f.pad(&text)?;
-        if let Some(style) = style {
-            style.fmt_suffix(f)?;
-        }
+        style.fmt_suffix(f)?;
         Ok(())
     }
 }
