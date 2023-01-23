@@ -17,8 +17,10 @@ pub trait GameT:
 {
     type Settings: Debug + Display + Serialize + DeserializeOwned + Clone + FromStr + Send;
     type Move: Debug + Serialize + DeserializeOwned + Clone + FromStr<Err = &'static str>;
+    type ClientAction: Debug + Serialize + DeserializeOwned + Clone + FromStr<Err = &'static str>;
     fn new(player_names: Vec<String>, settings: Self::Settings) -> Self;
     fn make_move(&mut self, player: &String, mov: Self::Move) -> Result<(), &'static str>;
+    fn do_client_action(&mut self, action: Self::ClientAction);
     fn to_view(&self, player: &String) -> Self;
     fn move_help() -> &'static str;
 }

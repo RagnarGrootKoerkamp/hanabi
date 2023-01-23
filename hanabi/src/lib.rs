@@ -219,12 +219,63 @@ pub enum Turn {
     Turn(usize),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+impl Display for Turn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Turn::Start => write!(f, "start of game"),
+            Turn::Turn(turn) => write!(f, "turn {turn}"),
+        }
+    }
+}
+
+struct DisplayVec<T>(Vec<T>);
+
+impl<T: std::fmt::Display> Display for DisplayVec<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[")?;
+        for (idx, t) in self.0.iter().enumerate() {
+            if idx == 0 {
+                write!(f, "{t}")?;
+            } else {
+                write!(f, ",{t}")?;
+            }
+        }
+        write!(f, "]")
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 pub struct CardKnowledge {
     /// NOTE: Indices are 1 lower than values.
     pub vs: [KnowledgeState; MAX_VALUE],
     pub cs: ColorArray<KnowledgeState>,
     pub picked_up: Turn,
+}
+
+impl Debug for CardKnowledge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, " Picked up: {}", self.picked_up)?;
+        writeln!(
+            f,
+            " Possible colors: {}",
+            DisplayVec(
+                COLORS
+                    .iter()
+                    .filter(|c| self.cs[**c] != KnowledgeState::Impossible)
+                    .map(|c| c.to_string().style(c.to_style()).to_string())
+                    .collect()
+            )
+        )?;
+        writeln!(
+            f,
+            " Possible values: {}",
+            DisplayVec(
+                (1..=MAX_VALUE)
+                    .filter(|v| self.vs[*v - 1] != KnowledgeState::Impossible)
+                    .collect()
+            )
+        )
+    }
 }
 
 impl Display for CardKnowledge {
@@ -422,10 +473,28 @@ impl Hand {
                 .collect(),
         );
     }
+    fn knowledge(&self, card_idx: CardIdx) -> Option<&CardKnowledge> {
+        match self {
+            Hand::Visible(cards) => cards.get(card_idx.0 - 1).map(|ck| &ck.1),
+            Hand::Hidden(cards) => cards.get(card_idx.0 - 1),
+        }
+    }
 }
 
 /// 0-based player index. Shown to user as 1-based.
 pub type Player = usize;
+
+fn parse_player(s: Option<&str>) -> Result<usize, &'static str> {
+    let Some(s) = s else {
+        return Err("Missing player");
+    };
+    let p = s.parse::<usize>().map_err(|_| "Could not parse player.")?;
+    if p == 0 {
+        return Err("Player index must be at least 1.");
+    }
+    Ok(p - 1)
+}
+
 /// 1-based card index.
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub struct CardIdx(usize);
@@ -436,7 +505,7 @@ impl FromStr for CardIdx {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let idx = s.parse().map_err(|_| "Failed to parse card index.")?;
         if idx == 0 {
-            Err("Index must not be 0.")
+            Err("Card index must not be 0.")
         } else {
             Ok(CardIdx(idx))
         }
@@ -487,6 +556,18 @@ pub enum Move {
     HintOtherPlayer { hint: Hint },
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum ClientAction {
+    /// Show the given number of log entries.
+    ShowLog { count: usize },
+    /// Show all possibilities for the given card.
+    CardInfo { player: Player, card_idx: CardIdx },
+    /// Show the game
+    Game,
+    /// TODO: Show the game-state at the given turn.
+    ShowTurn { turn: usize },
+}
+
 impl FromStr for Move {
     type Err = &'static str;
 
@@ -503,12 +584,7 @@ impl FromStr for Move {
             a if "hint".starts_with(a) => {
                 if tokens.clone().count() == 2 {
                     Move::Hint {
-                        hinted_player: tokens
-                            .next()
-                            .ok_or("Missing player")?
-                            .parse::<usize>()
-                            .map_err(|_| "Could not parse player.")?
-                            - 1,
+                        hinted_player: parse_player(tokens.next())?,
                         hint: tokens.next().ok_or("Missing hint")?.parse()?,
                     }
                 } else {
@@ -518,6 +594,34 @@ impl FromStr for Move {
                 }
             }
 
+            _ => return Err("Unknown action"),
+        };
+        if tokens.next().is_some() {
+            return Err("Trailing tokens");
+        }
+        Ok(mov)
+    }
+}
+
+impl FromStr for ClientAction {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut tokens = s.split_ascii_whitespace();
+        let mov = match tokens.next().ok_or("Empty string")? {
+            "" => return Err("Empty action"),
+            a if "log".starts_with(a) => ClientAction::ShowLog {
+                count: tokens
+                    .next()
+                    .ok_or("Missing count")?
+                    .parse()
+                    .map_err(|_| "Could not parse count.")?,
+            },
+            a if "info".starts_with(a) => ClientAction::CardInfo {
+                player: parse_player(tokens.next())?,
+                card_idx: tokens.next().ok_or("Missing index")?.parse()?,
+            },
+            a if "game".starts_with(a) => ClientAction::Game,
             _ => return Err("Unknown action"),
         };
         if tokens.next().is_some() {
@@ -853,6 +957,25 @@ impl Game {
         Ok(())
     }
 
+    pub fn client_action(&mut self, action: ClientAction) {
+        match action {
+            ClientAction::ShowLog { count } => self.print_log(count),
+            ClientAction::CardInfo { player, card_idx } => {
+                if let Some(know) = self.hands[player].knowledge(card_idx) {
+                    eprintln!("{know:?}");
+                } else {
+                    eprintln!("Not a valid card.");
+                }
+            }
+            ClientAction::ShowTurn { .. } => {
+                eprintln!("Showing a specific turn is not yet implemented.");
+            }
+            ClientAction::Game => {
+                eprintln!("{self}");
+            }
+        }
+    }
+
     fn hint(
         &mut self,
         hinted_player: usize,
@@ -894,6 +1017,20 @@ impl Game {
 
     pub fn has_ended(&self) -> bool {
         self.game_state.has_ended()
+    }
+
+    fn print_log(&self, count: usize) {
+        eprintln!("{}", "log:".bold());
+        for (id, mov) in self.move_log.iter().enumerate().rev().take(count).rev() {
+            eprintln!(
+                " {:2}: {}",
+                id + 1,
+                PlayerMoveLogWithNames {
+                    mov,
+                    players: &self.players
+                }
+            );
+        }
     }
 }
 
@@ -1026,25 +1163,7 @@ impl Display for Game {
             writeln!(f)?;
         }
         writeln!(f)?;
-        writeln!(f, "{}", "log:".bold())?;
-        for (id, mov) in self
-            .move_log
-            .iter()
-            .enumerate()
-            .rev()
-            .take(self.players.len())
-            .rev()
-        {
-            writeln!(
-                f,
-                " {:2}: {}",
-                id + 1,
-                PlayerMoveLogWithNames {
-                    mov,
-                    players: &self.players
-                }
-            )?;
-        }
+        self.print_log(self.players.len());
         writeln!(f, "{}", self.game_state.to_string(&self.players).bold())?;
         Ok(())
     }
@@ -1054,12 +1173,18 @@ impl turnbased_game_server::GameT for Game {
     type Settings = GameVariant;
     type Move = Move;
 
+    type ClientAction = ClientAction;
+
     fn new(players: Vec<String>, variant: Self::Settings) -> Self {
         Self::new(players, variant)
     }
 
     fn make_move(&mut self, player: &String, mov: Move) -> Result<(), &'static str> {
         Self::make_move(self, self.player_id(player).ok_or("Player not found")?, mov)
+    }
+
+    fn do_client_action(&mut self, action: Self::ClientAction) {
+        Self::client_action(self, action)
     }
 
     fn to_view(&self, player: &String) -> Self {
@@ -1070,6 +1195,6 @@ impl turnbased_game_server::GameT for Game {
     }
 
     fn move_help() -> &'static str {
-        "p[lay] <index> | d[iscard] <index> | h[int] <playerid> <c[olor]|value>"
+        "p[lay] <index> | d[iscard] <index> | h[int] <playerid> <c[olor]|value> | l[og] <count> | i[nfo] <playerid> <index> | g[ame]"
     }
 }

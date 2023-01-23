@@ -155,19 +155,19 @@ impl<Game: GameT> ServerState<Game> {
                 }
                 self.watch_room(clientid, roomid);
                 let room = self.room_mut(roomid);
-                let RoomState::WaitingForPlayers { max_players, .. } = room.state else {
-                    return Some(Error("Room is not waiting for players".into()));
-                };
-                if room.players.iter().find(|&x| x == &userid).is_some() {
-                    return Some(Error("User is already in room".into()));
-                }
-                if room.players.len() == max_players {
-                    return Some(Error("Room is already full".into()));
-                }
-                room.players.push(userid.clone());
-                if room.players.len() == max_players {
-                    if let Err(err) = self.start_game(&userid, roomid) {
-                        return Some(Error(err.into()));
+                // if user is not yet in room, join.
+                if room.players.iter().find(|&x| x == &userid).is_none() {
+                    let RoomState::WaitingForPlayers { max_players, .. } = room.state else {
+                        return Some(Error("Room is not waiting for players".into()));
+                    };
+                    if room.players.len() == max_players {
+                        return Some(Error("Room is already full".into()));
+                    }
+                    room.players.push(userid.clone());
+                    if room.players.len() == max_players {
+                        if let Err(err) = self.start_game(&userid, roomid) {
+                            return Some(Error(err.into()));
+                        }
                     }
                 }
             }
