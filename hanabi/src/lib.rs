@@ -1154,12 +1154,12 @@ impl Display for Game {
                 let d = discarded[c as usize][v - 1];
                 let style = if v <= self.played[c] {
                     good.bold()
-                } else if d == 0 {
-                    ok
                 } else if d == Deck::count(self.variant, c, v) {
                     error
-                } else {
+                } else if d == Deck::count(self.variant, c, v) - 1 {
                     warn
+                } else {
+                    ok
                 };
                 write!(f, " {}", d.style(style))?;
             }
