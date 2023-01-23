@@ -257,26 +257,22 @@ pub struct CardKnowledge {
 
 impl Debug for CardKnowledge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, " Picked up: {}", self.picked_up)?;
-        writeln!(
+        write!(
             f,
-            " Possible colors: {}",
+            " {}, {}, since: {}",
             DisplayVec(
                 COLORS
                     .iter()
                     .filter(|c| self.cs[**c] != KnowledgeState::Impossible)
                     .map(|c| c.to_styled_string())
                     .collect()
-            )
-        )?;
-        writeln!(
-            f,
-            " Possible values: {}",
+            ),
             DisplayVec(
                 (1..=MAX_VALUE)
                     .filter(|v| self.vs[*v - 1] != KnowledgeState::Impossible)
                     .collect()
-            )
+            ),
+            self.picked_up
         )
     }
 }

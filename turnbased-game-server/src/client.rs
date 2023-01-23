@@ -77,12 +77,12 @@ pub async fn start_client<Game: GameT>(address: &str) {
             }
             Response::Room(room) => {
                 state.lock().unwrap().room = Some(room);
-                eprint!("{}", "action:\n ".bold());
+                eprint!("{}", "action: ".bold());
                 eprint!("{}", 7 as char);
             }
             _ => {
                 state.lock().unwrap().room = None;
-                eprint!("{}", "action:\n ".bold());
+                eprint!("{}", "action: ".bold());
             }
         };
     });
@@ -139,7 +139,7 @@ async fn read_user_input<Game: GameT>(
                 } else {
                     eprintln!(" Error: {}", "Not in a room".bold());
                 }
-                eprint!("{}", "action:\n ".bold());
+                eprint!("{}", "action: ".bold());
             }
         };
     }
