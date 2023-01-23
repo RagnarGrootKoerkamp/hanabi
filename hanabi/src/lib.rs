@@ -63,6 +63,9 @@ impl Color {
             Color::Multi => Style::new().purple(),
         }
     }
+    fn to_styled_string(&self) -> String {
+        self.to_string().style(self.to_style()).to_string()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -262,7 +265,7 @@ impl Debug for CardKnowledge {
                 COLORS
                     .iter()
                     .filter(|c| self.cs[**c] != KnowledgeState::Impossible)
-                    .map(|c| c.to_string().style(c.to_style()).to_string())
+                    .map(|c| c.to_styled_string())
                     .collect()
             )
         )?;
