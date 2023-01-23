@@ -594,7 +594,7 @@ pub enum Move {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ClientAction {
     /// Show the given number of log entries.
-    ShowLog { count: usize },
+    ShowLog { count: Option<usize> },
     /// Show all possibilities for the given card.
     CardInfo { player: Player, card_idx: CardIdx },
     /// Show the game
@@ -648,9 +648,8 @@ impl FromStr for ClientAction {
             a if "log".starts_with(a) => ClientAction::ShowLog {
                 count: tokens
                     .next()
-                    .ok_or("Missing count")?
-                    .parse()
-                    .map_err(|_| "Could not parse count.")?,
+                    .map(|t| t.parse().map_err(|_| "Could not parse count."))
+                    .transpose()?,
             },
             a if "info".starts_with(a) => ClientAction::CardInfo {
                 player: parse_player(tokens.next())?,
@@ -1054,9 +1053,16 @@ impl Game {
         self.game_state.has_ended()
     }
 
-    fn print_log(&self, count: usize) {
+    fn print_log(&self, count: Option<usize>) {
         eprintln!("{}", "log:".bold());
-        for (id, mov) in self.move_log.iter().enumerate().rev().take(count).rev() {
+        for (id, mov) in self
+            .move_log
+            .iter()
+            .enumerate()
+            .rev()
+            .take(count.unwrap_or(usize::MAX))
+            .rev()
+        {
             eprintln!(
                 " {:2}: {}",
                 id + 1,
@@ -1198,7 +1204,7 @@ impl Display for Game {
             writeln!(f)?;
         }
         writeln!(f)?;
-        self.print_log(self.players.len());
+        self.print_log(Some(self.players.len()));
         writeln!(f, "{}", self.game_state.to_string(&self.players).bold())?;
         Ok(())
     }
@@ -1230,6 +1236,6 @@ impl turnbased_game_server::GameT for Game {
     }
 
     fn move_help() -> &'static str {
-        "p[lay] <index> | d[iscard] <index> | h[int] <playerid> <c[olor]|value> | l[og] <count> | i[nfo] <playerid> <index> | g[ame]"
+        "p[lay] <index> | d[iscard] <index> | h[int] <playerid> <c[olor]|value> | l[og] [count] | i[nfo] <playerid> <index> | g[ame]"
     }
 }
