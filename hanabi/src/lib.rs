@@ -299,7 +299,7 @@ impl Display for CardKnowledge {
         // Known color?
         let mut c = self.cs.find_eq(Known);
         // Otherwise, multi-candidate?
-        if c.is_none() && self.cs.count_eq(Possible) == 2 {
+        if c.is_none() && self.cs.count_eq(Possible) == 2 && self.cs[Color::Multi] == Possible {
             c = self.cs.find_eq(Possible);
         }
 
@@ -348,8 +348,10 @@ pub struct CardWithKnowledge(Card, CardKnowledge);
 
 impl Display for CardWithKnowledge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self(card, CardKnowledge { vs, cs, .. }) = self;
         use KnowledgeState::*;
-        // Put an underline under the color/value once it is known.
+        // Put an underline under the color/value once it is hinted.
+        // Show as bold when color is known for sure.
 
         let to_style = |k| {
             if k {
@@ -358,26 +360,51 @@ impl Display for CardWithKnowledge {
                 Style::new()
             }
         };
-        let color_style = to_style(self.1.cs.find_eq(Known).is_some());
-        let value_style = to_style(self.1.vs.iter().position(|&x| x == Known).is_some());
+        // Multi card was hinted a color but is still ambiguous.
+        let maybemulti = cs.count_eq(Possible) == 2 && cs[Color::Multi] == Possible;
+        let mut color_style = to_style(cs.count_eq(Known) == 1 || maybemulti);
+        let mut value_style = to_style(vs.iter().position(|&x| x == Known).is_some());
+        if cs[Color::Multi] != Possible {
+            color_style = color_style.bold();
+            value_style = value_style.bold();
+        }
 
-        let len = format!("{} {}", self.0.c, self.0.v).len();
+        let len = format!("{} {}", card.c, card.v).len();
         if let Some(width) = f.width() {
-            write!(
-                f,
-                "{}{} {}{}",
-                " ".repeat((width - len as usize) / 2),
-                self.0.c.style(color_style).style(self.0.c.to_style()),
-                self.0.v.style(value_style).style(self.0.c.to_style()),
-                " ".repeat((width - len as usize + 1) / 2),
-            )?;
-        } else {
-            write!(
-                f,
-                "{} {}",
-                self.0.c.style(color_style).style(self.0.c.to_style()),
-                self.0.v.style(value_style).style(self.0.c.to_style()),
-            )?;
+            write!(f, "{}", " ".repeat((width - len as usize) / 2),)?;
+        }
+
+        let styled_maybemulti = || -> String {
+            let maybe_color = cs.find_eq(Possible).unwrap();
+            Color::Multi
+                .to_string()
+                .chars()
+                .enumerate()
+                .map(|(i, ch)| {
+                    if i % 2 == 0 {
+                        ch.style(maybe_color.to_style().underline()).to_string()
+                    } else {
+                        ch.style(Color::Multi.to_style().underline()).to_string()
+                    }
+                })
+                .collect::<String>()
+        };
+
+        write!(
+            f,
+            "{} {}",
+            if card.c == Color::Multi && maybemulti {
+                styled_maybemulti()
+            } else {
+                card.c
+                    .style(color_style)
+                    .style(card.c.to_style())
+                    .to_string()
+            },
+            card.v.style(value_style).style(card.c.to_style()),
+        )?;
+        if let Some(width) = f.width() {
+            write!(f, "{}", " ".repeat((width - len as usize + 1) / 2),)?;
         }
         Ok(())
     }
