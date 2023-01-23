@@ -1134,7 +1134,7 @@ impl Display for Game {
 
         write!(f, " {:13} ", "")?;
         for idx in 1..=self.cards_per_player {
-            write!(f, " {idx:^CARDWIDTH$}")?;
+            write!(f, " {:^CARDWIDTH$}", idx.italic())?;
         }
         writeln!(f)?;
         for (pid, p) in self.players.iter().enumerate() {
